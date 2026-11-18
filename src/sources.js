@@ -155,41 +155,55 @@ function conversation (file, { now = Date.now } = {}) {
     },
     async * docs () {
       const rl = readline.createInterface({ input: fs.createReadStream(file, 'utf8'), crlfDelay: Infinity })
-      /** @type {{ line: number, date: string, user: string, reply: string[] } | null} */
-      let turn = null
-      let n = 0
-      const close = () => {
-        const cur = turn
-        if (!cur) return null
-        const reply = cur.reply.join('\n\n').slice(0, ASSISTANT_MAX)
-        const text = redact(`Usuario: ${cur.user.slice(0, USER_MAX)}${reply ? `\n\nClaude: ${reply}` : ''}`)
-        const doc = { key: `conv:${file}:${cur.line}`, path: file, version: sha(text), date: cur.date, chunks: splitLong(text).map(t => ({ heading: `conversación ${cur.date}`, line: cur.line, text: t })) }
-        turn = null
-        return doc
+      for await (const t of readTurns(rl)) {
+        const text = turnText(t)
+        yield { key: `conv:${file}:${t.line}`, path: file, version: sha(text), date: t.date, chunks: splitLong(text).map(c => ({ heading: `conversación ${t.date}`, line: t.line, text: c })) }
       }
-      for await (const raw of rl) {
-        n++
-        // Filtro barato antes de parsear: la mayoría de las líneas son otra cosa.
-        if (!raw.includes('"type":"user"') && !raw.includes('"type":"assistant"')) continue
-        let o
-        try { o = JSON.parse(raw) } catch (_) { continue }
-        if (o.isSidechain || o.isMeta) continue
-        const content = o.message?.content
-        if (o.type === 'user') {
-          const parts = typeof content === 'string' ? [content] : Array.isArray(content) ? content.filter(p => p.type === 'text').map(p => p.text) : []
-          const text = cleanUserText(parts.join('\n'))
-          if (!text) continue
-          const done = close()
-          if (done) yield done
-          turn = { line: n, date: String(o.timestamp || '').slice(0, 10), user: text, reply: [] }
-        } else if (o.type === 'assistant' && turn && Array.isArray(content)) {
-          for (const p of content) if (p.type === 'text' && p.text) turn.reply.push(p.text)
-        }
-      }
-      const last = close()
-      if (last) yield last
     }
   }
+}
+
+/**
+ * @typedef {{ line: number, date: string, user: string, reply: string[] }} Turn
+ */
+
+/**
+ * Los turnos de una transcripción de Claude Code: lo que dijo la persona y el texto de lo que
+ * se le respondió. Fuera herramientas, sus salidas, el razonamiento y los avisos automáticos.
+ * Lo usan el índice (las conversaciones) y el hook (la conversación en curso).
+ * @param {AsyncIterable<string> | Iterable<string>} lines
+ * @param {number} [firstLine]  número de la primera línea, para que `line` apunte al archivo
+ * @returns {AsyncGenerator<Turn>}
+ */
+export async function * readTurns (lines, firstLine = 1) {
+  /** @type {Turn | null} */
+  let turn = null
+  let n = firstLine - 1
+  for await (const raw of lines) {
+    n++
+    // Filtro barato antes de parsear: la mayoría de las líneas son otra cosa.
+    if (!raw.includes('"type":"user"') && !raw.includes('"type":"assistant"')) continue
+    let o
+    try { o = JSON.parse(raw) } catch (_) { continue }
+    if (o.isSidechain || o.isMeta) continue
+    const content = o.message?.content
+    if (o.type === 'user') {
+      const parts = typeof content === 'string' ? [content] : Array.isArray(content) ? content.filter(p => p.type === 'text').map(p => p.text) : []
+      const text = cleanUserText(parts.join('\n'))
+      if (!text) continue
+      if (turn) yield turn
+      turn = { line: n, date: String(o.timestamp || '').slice(0, 10), user: text, reply: [] }
+    } else if (o.type === 'assistant' && turn && Array.isArray(content)) {
+      for (const p of content) if (p.type === 'text' && p.text) turn.reply.push(p.text)
+    }
+  }
+  if (turn) yield turn
+}
+
+/** @param {Turn} t */
+export function turnText (t) {
+  const reply = t.reply.join('\n\n').slice(0, ASSISTANT_MAX)
+  return redact(`Usuario: ${t.user.slice(0, USER_MAX)}${reply ? `\n\nClaude: ${reply}` : ''}`)
 }
 
 /**

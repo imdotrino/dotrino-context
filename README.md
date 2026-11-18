@@ -99,9 +99,11 @@ esperar. El servidor se apaga cuando se cierra Claude Code.
 ### Contexto en cada mensaje
 
 `dotrino-context hook` es un hook `UserPromptSubmit`: con cada mensaje busca y añade al contexto
-los trozos que el reordenador puntúa por encima de 0 (hasta 6). Le pregunta al servidor de esa
+los trozos que el reordenador puntúa por encima de 0 (hasta 6). Busca con el mensaje **y con
+el turno anterior** de la conversación (lo lee de la transcripción), así que un «sí, córrela»
+se entiende por lo que se venía hablando; y no repite lo que ya inyectó en esa sesión. Le pregunta al servidor de esa
 carpeta por un socket local (`$XDG_RUNTIME_DIR/dotrino-context-<id>.sock`), así que no carga
-los modelos otra vez. Los mensajes de menos de 4 palabras no se buscan. Sin servidor, lo dice
+los modelos otra vez. Sin conversación detrás, los mensajes de menos de 4 palabras no se buscan; con ella, basta con 2. Sin servidor, lo dice
 en una línea.
 
 ```json

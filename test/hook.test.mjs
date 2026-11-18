@@ -58,3 +58,48 @@ test('task notifications and hook feedback are not searched', async () => {
   await runHook({ start: root, env: {}, stdin: Readable.from([JSON.stringify({ prompt: 'Stop hook feedback:\n[bash x]: La tarjeta de esta consola quedó vieja', cwd: root })]), out: out.w })
   assert.equal(out.get(), '')
 })
+
+/** Una transcripción mínima de Claude Code. */
+function transcript (/** @type {[string, string][]} */ turns) {
+  const f = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'dctx-t-')), 's.jsonl')
+  const lines = []
+  for (const [u, a] of turns) {
+    lines.push(JSON.stringify({ type: 'user', message: { role: 'user', content: u } }))
+    lines.push(JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text: a }] } }))
+  }
+  fs.writeFileSync(f, lines.join('\n') + '\n')
+  return f
+}
+
+test('the query carries the previous turn, and short replies are searched when there is one', async () => {
+  const { previousTurn } = await import('../src/hook.js')
+  const t = transcript([['hola', 'qué tal'], ['¿corro la auditoría de dotrino-context?', 'Cuesta 0,49 USD. ¿La corro?']])
+  const before = await previousTurn(t, 'sí, córrela')
+  assert.match(before, /auditoría de dotrino-context/)
+  assert.match(before, /0,49 USD/)
+  assert.equal(worthSearching('sí, córrela', true), true)
+  assert.equal(worthSearching('sí, córrela', false), false)
+  assert.equal(worthSearching('listo', true), false)
+
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dctx-'))
+  /** @type {string[]} */
+  const asked = []
+  const server = await listen(root, async req => { asked.push(req.query); return [] }, () => {})
+  await runHook({ start: root, env: {}, stdin: Readable.from([JSON.stringify({ prompt: 'sí, córrela', cwd: root, transcript_path: t })]), out: sink().w })
+  assert.match(asked[0], /^sí, córrela\n\n.*auditoría de dotrino-context/s)
+  server?.close()
+})
+
+test('what was already injected in this session is not repeated', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dctx-'))
+  const server = await listen(root, async () => [
+    { path: '/a.md', kind: 'doc', date: 'd', heading: 'A', line: 1, text: 'a' },
+    { path: '/b.md', kind: 'doc', date: 'd', heading: 'B', line: 1, text: 'b' }
+  ], () => {})
+  const env = { XDG_RUNTIME_DIR: root }
+  const run = async () => { const o = sink(); await runHook({ start: root, env, stdin: Readable.from([JSON.stringify({ prompt: 'qué llave firma el acta', cwd: root, session_id: 'S1' })]), out: o.w }); return o.get() }
+  const first = await run()
+  assert.match(first, /\/a\.md/)
+  assert.equal(await run(), '')
+  server?.close()
+})
