@@ -18,8 +18,8 @@ export const HOOK_K = 6
  */
 export const HOOK_MIN_SCORE = 0
 
-/** @param {{ start: string, stdin?: NodeJS.ReadableStream, out?: NodeJS.WritableStream }} opts */
-export async function runHook ({ start, stdin = process.stdin, out = process.stdout }) {
+/** @param {{ start: string, stdin?: NodeJS.ReadableStream, out?: NodeJS.WritableStream, env?: NodeJS.ProcessEnv }} opts */
+export async function runHook ({ start, stdin = process.stdin, out = process.stdout, env = process.env }) {
   let raw = ''
   for await (const chunk of stdin) raw += chunk
   const input = raw ? JSON.parse(raw) : {}
@@ -27,8 +27,10 @@ export async function runHook ({ start, stdin = process.stdin, out = process.std
   if (!worthSearching(prompt)) return
   let results
   try {
-    // Cada carpeta tiene su servidor; él ya sabe qué bases de arriba consultar.
-    results = await ask(input.cwd || start, { query: prompt.slice(0, 2000), k: HOOK_K, minScore: HOOK_MIN_SCORE })
+    // El servidor es el de la carpeta donde se abrió Claude Code (CLAUDE_PROJECT_DIR), no el de
+    // la carpeta a la que se haya hecho `cd` durante la sesión: esa no tiene servidor propio.
+    // Él ya sabe qué bases de arriba consultar.
+    results = await ask(env.CLAUDE_PROJECT_DIR || input.cwd || start, { query: prompt.slice(0, 2000), k: HOOK_K, minScore: HOOK_MIN_SCORE })
   } catch (e) {
     // Sin servidor no hay contexto: se dice en una línea, no se calla.
     out.write(`dotrino-context: no context added (${/** @type {any} */ (e).code || 'error'}: ${/** @type {any} */ (e).message})\n`)
