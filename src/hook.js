@@ -41,7 +41,7 @@ export async function runHook ({ start, stdin = process.stdin, out = process.std
     results = await ask(env.CLAUDE_PROJECT_DIR || input.cwd || start, { query: prompt.slice(0, 2000), k: HOOK_K, minScore: HOOK_MIN_SCORE, maxGap: HOOK_MAX_GAP })
   } catch (e) {
     // Sin servidor no hay contexto: se dice en una línea, no se calla.
-    out.write(`dotrino-context: no context added (${/** @type {any} */ (e).code || 'error'}: ${/** @type {any} */ (e).message})\n`)
+    out.write(`dotrino-context: no context added (${/** @type {Error & { code?: string }} */ (e).code || 'error'}: ${/** @type {Error} */ (e).message})\n`)
     return
   }
   if (!results.length) return

@@ -15,7 +15,7 @@ export const DEFAULT_RERANKER = 'onnx-community/bge-reranker-v2-m3-ONNX'
 export function createReranker ({ model, env = process.env } = {}) {
   const id = model || env.DOTRINO_CONTEXT_RERANKER || DEFAULT_RERANKER
   const rt = runtime({ env })
-  /** @type {Promise<{ tok: any, net: any }> | null} */
+  /** @type {Promise<{ tok: import('@huggingface/transformers').PreTrainedTokenizer, net: import('@huggingface/transformers').PreTrainedModel }> | null} */
   let loading = null
   const load = () => {
     if (!loading) {

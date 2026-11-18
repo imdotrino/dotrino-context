@@ -20,7 +20,7 @@ export async function indexFolder ({ root, store, embedder, home, now, log = () 
       if ((c.kind === 'doc' || c.kind === 'memory') && fs.statSync(c.key).size > MAX_FILE_BYTES) { skipped.push(c.key); continue }
       stamp = c.stamp()
     } catch (e) {
-      if (/** @type {any} */ (e).code === 'ENOENT') continue
+      if (/** @type {NodeJS.ErrnoException} */ (e).code === 'ENOENT') continue
       throw e
     }
     seen.add(c.key)

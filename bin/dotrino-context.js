@@ -9,6 +9,10 @@ import { VERSION } from '../src/version.js'
 import { runHook } from '../src/hook.js'
 import { baseChain } from '../src/paths.js'
 
+/**
+ * @typedef {Awaited<ReturnType<typeof import('../src/indexer.js').indexFolder>>} IndexResult
+ * @typedef {ReturnType<ReturnType<typeof import('../src/context.js').openContext>['stats']>} Stats
+ */
 const kinds = (/** @type {Record<string, number>} */ k) => Object.entries(k).map(([a, b]) => `${a} ${b}`).join(', ')
 const es = /^es/i.test(process.env.LC_ALL || process.env.LC_MESSAGES || process.env.LANG || '')
 const t = es
@@ -26,8 +30,8 @@ Opciones:
   --root <carpeta>   la carpeta (por defecto, la actual)
   --k <n>            cuántos resultados (search, por defecto 8)
   --version`,
-      indexed: (/** @type {any} */ r, /** @type {any} */ s) => `${r.added} nuevos, ${r.updated} cambiados, ${r.removed} quitados, ${r.skipped} saltados · ${s.chunks} trozos (${kinds(s.byKind)})`,
-      status: (/** @type {any} */ s) => `carpeta: ${s.root}${s.chain.length > 1 ? `\nsubcontexto: ${s.chain.slice(1).join(', ')}` : ''}\nfuentes: ${s.sources}\ntrozos: ${s.chunks} (${kinds(s.byKind)})\nmodelo: ${s.model || '—'}\nindexado: ${s.indexedAt || 'nunca'}${s.skipped.length ? `\nsaltados por tamaño (>512 KB):\n  ${s.skipped.join('\n  ')}` : ''}`,
+      indexed: (/** @type {IndexResult} */ r, /** @type {Stats} */ s) => `${r.added} nuevos, ${r.updated} cambiados, ${r.removed} quitados, ${r.skipped} saltados · ${s.chunks} trozos (${kinds(s.byKind)})`,
+      status: (/** @type {Stats} */ s) => `carpeta: ${s.root}${s.chain.length > 1 ? `\nsubcontexto: ${s.chain.slice(1).join(', ')}` : ''}\nfuentes: ${s.sources}\ntrozos: ${s.chunks} (${kinds(s.byKind)})\nmodelo: ${s.model || '—'}\nindexado: ${s.indexedAt || 'nunca'}${s.skipped.length ? `\nsaltados por tamaño (>512 KB):\n  ${s.skipped.join('\n  ')}` : ''}`,
       noQuery: 'Falta qué buscar: dotrino-context search <texto>'
     }
   : {
@@ -44,8 +48,8 @@ Options:
   --root <folder>    the folder (default: current)
   --k <n>            number of results (search, default 8)
   --version`,
-      indexed: (/** @type {any} */ r, /** @type {any} */ s) => `${r.added} new, ${r.updated} changed, ${r.removed} removed, ${r.skipped} skipped · ${s.chunks} chunks (${kinds(s.byKind)})`,
-      status: (/** @type {any} */ s) => `folder: ${s.root}${s.chain.length > 1 ? `\nsub-context: ${s.chain.slice(1).join(', ')}` : ''}\nsources: ${s.sources}\nchunks: ${s.chunks} (${kinds(s.byKind)})\nmodel: ${s.model || '—'}\nindexed: ${s.indexedAt || 'never'}${s.skipped.length ? `\nskipped by size (>512 KB):\n  ${s.skipped.join('\n  ')}` : ''}`,
+      indexed: (/** @type {IndexResult} */ r, /** @type {Stats} */ s) => `${r.added} new, ${r.updated} changed, ${r.removed} removed, ${r.skipped} skipped · ${s.chunks} chunks (${kinds(s.byKind)})`,
+      status: (/** @type {Stats} */ s) => `folder: ${s.root}${s.chain.length > 1 ? `\nsub-context: ${s.chain.slice(1).join(', ')}` : ''}\nsources: ${s.sources}\nchunks: ${s.chunks} (${kinds(s.byKind)})\nmodel: ${s.model || '—'}\nindexed: ${s.indexedAt || 'never'}${s.skipped.length ? `\nskipped by size (>512 KB):\n  ${s.skipped.join('\n  ')}` : ''}`,
       noQuery: 'Missing what to search: dotrino-context search <text>'
     }
 

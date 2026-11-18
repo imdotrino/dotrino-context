@@ -23,7 +23,7 @@ export function openContext ({ root, chain, embedder = createEmbedder(), reranke
     }
   }
   const dbs = stores || dirs.map(d => Store.open(d))
-  /** @type {Promise<any> | null} */
+  /** @type {Promise<Awaited<ReturnType<typeof indexFolder>>> | null} */
   let running = null
   let lastRun = 0
 
@@ -31,11 +31,8 @@ export function openContext ({ root, chain, embedder = createEmbedder(), reranke
   const reindex = () => {
     if (!running) {
       running = (async () => {
-        let own = null
-        for (let i = 0; i < dirs.length; i++) {
-          const r = await indexFolder({ root: dirs[i], store: dbs[i], embedder, home, log })
-          if (i === 0) own = r
-        }
+        const own = await indexFolder({ root: dirs[0], store: dbs[0], embedder, home, log })
+        for (let i = 1; i < dirs.length; i++) await indexFolder({ root: dirs[i], store: dbs[i], embedder, home, log })
         return own
       })().finally(() => { running = null; lastRun = Date.now() })
     }

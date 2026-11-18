@@ -33,7 +33,7 @@ export class Store {
     // crear) queda puesto.
     let db = new DatabaseSync(file)
     const hasMeta = db.prepare("select 1 from sqlite_master where type = 'table' and name = 'meta'").get()
-    const v = hasMeta ? /** @type {any} */ (db.prepare("select value from meta where key = 'schema'").get())?.value : null
+    const v = hasMeta ? /** @type {{ value: string } | undefined} */ (db.prepare("select value from meta where key = 'schema'").get())?.value : null
     const fresh = !hasMeta && !db.prepare("select 1 from sqlite_master where type = 'table'").get()
     if (!fresh && v !== SCHEMA_VERSION) {
       db.close()
@@ -79,7 +79,7 @@ export class Store {
 
   /** @returns {Map<string, { kind: string, stamp: string }>} */
   containers () {
-    const rows = /** @type {any[]} */ (this.db.prepare('select key, kind, stamp from containers').all())
+    const rows = /** @type {{ key: string, kind: string, stamp: string }[]} */ (this.db.prepare('select key, kind, stamp from containers').all())
     return new Map(rows.map(r => [r.key, { kind: r.kind, stamp: r.stamp }]))
   }
 
@@ -90,7 +90,7 @@ export class Store {
 
   /** @param {string} container @returns {Map<string, string>} key → versión */
   docsOf (container) {
-    const rows = /** @type {any[]} */ (this.db.prepare('select key, version from docs where container = ?').all(container))
+    const rows = /** @type {{ key: string, version: string }[]} */ (this.db.prepare('select key, version from docs where container = ?').all(container))
     return new Map(rows.map(r => [r.key, r.version]))
   }
 
@@ -182,8 +182,8 @@ export class Store {
   }
 
   stats () {
-    const one = (/** @type {string} */ sql) => /** @type {any} */ (this.db.prepare(sql).get()).n
-    const byKind = /** @type {any[]} */ (this.db.prepare('select kind, count(*) n from chunks group by kind').all())
+    const one = (/** @type {string} */ sql) => /** @type {{ n: number }} */ (this.db.prepare(sql).get()).n
+    const byKind = /** @type {{ kind: string, n: number }[]} */ (this.db.prepare('select kind, count(*) n from chunks group by kind').all())
     return {
       sources: one('select count(*) n from containers'),
       chunks: one('select count(*) n from chunks'),

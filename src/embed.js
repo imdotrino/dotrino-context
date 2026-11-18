@@ -16,7 +16,7 @@ const BATCH = 16
 export function createEmbedder ({ model, env = process.env } = {}) {
   const id = model || env.DOTRINO_CONTEXT_MODEL || DEFAULT_MODEL
   const rt = runtime({ env })
-  /** @type {Promise<any> | null} */
+  /** @type {Promise<import('@huggingface/transformers').FeatureExtractionPipeline> | null} */
   let loading = null
   const load = () => {
     if (!loading) {

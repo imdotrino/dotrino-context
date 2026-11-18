@@ -41,7 +41,7 @@ export function walk (root) {
   const visit = d => {
     let entries
     try { entries = fs.readdirSync(d, { withFileTypes: true }) } catch (e) {
-      if (/** @type {any} */ (e).code === 'ENOENT' || /** @type {any} */ (e).code === 'EACCES') return
+      if (/** @type {NodeJS.ErrnoException} */ (e).code === 'ENOENT' || /** @type {NodeJS.ErrnoException} */ (e).code === 'EACCES') return
       throw e
     }
     if (entries.some(e => e.name === '.git')) repos.push(d)
@@ -92,7 +92,7 @@ function gitRepo (repo) {
         return execFileSync('git', ['-C', repo, 'rev-parse', 'HEAD'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
       } catch (e) {
         // Un repo recién creado no tiene HEAD: no es un error, es un repo vacío.
-        if (/unknown revision|ambiguous argument 'HEAD'|does not have any commits/.test(String(/** @type {any} */ (e).stderr))) return 'empty'
+        if (/unknown revision|ambiguous argument 'HEAD'|does not have any commits/.test(String(/** @type {{ stderr?: string | Buffer }} */ (e).stderr))) return 'empty'
         throw e
       }
     },
@@ -159,10 +159,11 @@ function conversation (file, { now = Date.now } = {}) {
       let turn = null
       let n = 0
       const close = () => {
-        if (!turn) return null
-        const reply = turn.reply.join('\n\n').slice(0, ASSISTANT_MAX)
-        const text = redact(`Usuario: ${turn.user.slice(0, USER_MAX)}${reply ? `\n\nClaude: ${reply}` : ''}`)
-        const doc = { key: `conv:${file}:${turn.line}`, path: file, version: sha(text), date: turn.date, chunks: splitLong(text).map(t => ({ heading: `conversación ${turn?.date}`, line: /** @type {any} */ (turn).line, text: t })) }
+        const cur = turn
+        if (!cur) return null
+        const reply = cur.reply.join('\n\n').slice(0, ASSISTANT_MAX)
+        const text = redact(`Usuario: ${cur.user.slice(0, USER_MAX)}${reply ? `\n\nClaude: ${reply}` : ''}`)
+        const doc = { key: `conv:${file}:${cur.line}`, path: file, version: sha(text), date: cur.date, chunks: splitLong(text).map(t => ({ heading: `conversación ${cur.date}`, line: cur.line, text: t })) }
         turn = null
         return doc
       }

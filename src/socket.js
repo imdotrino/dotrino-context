@@ -7,6 +7,11 @@ import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
 
+/**
+ * Lo que el hook le pide al servidor.
+ * @typedef {{ query: string, k?: number, minScore?: number, maxGap?: number }} SearchRequest
+ */
+
 /** @param {string} root */
 export function socketPath (root, { env = process.env } = {}) {
   const id = crypto.createHash('sha1').update(path.resolve(root)).digest('hex').slice(0, 12)
@@ -17,7 +22,7 @@ export function socketPath (root, { env = process.env } = {}) {
  * Atiende el socket de la carpeta. Si ya lo atiende otro servidor (otra sesión de Claude en
  * la misma carpeta), no hace nada: con uno basta.
  * @param {string} root
- * @param {(req: any) => Promise<any>} handle
+ * @param {(req: SearchRequest) => Promise<unknown>} handle
  * @param {(m: string) => void} log
  */
 export async function listen (root, handle, log) {
@@ -58,7 +63,7 @@ function reachable (file) {
 
 /**
  * @param {string} root
- * @param {any} req
+ * @param {SearchRequest} req
  * @param {{ timeoutMs?: number }} [opts]
  */
 export function ask (root, req, { timeoutMs = 20_000 } = {}) {
@@ -77,6 +82,6 @@ export function ask (root, req, { timeoutMs = 20_000 } = {}) {
         else reject(Object.assign(new Error(r.error), { code: r.code }))
       } catch (e) { reject(e) }
     })
-    c.once('error', e => { clearTimeout(timer); reject(Object.assign(e, { code: /** @type {any} */ (e).code === 'ENOENT' || /** @type {any} */ (e).code === 'ECONNREFUSED' ? 'no-server' : /** @type {any} */ (e).code })) })
+    c.once('error', e => { clearTimeout(timer); reject(Object.assign(e, { code: /** @type {NodeJS.ErrnoException} */ (e).code === 'ENOENT' || /** @type {NodeJS.ErrnoException} */ (e).code === 'ECONNREFUSED' ? 'no-server' : /** @type {NodeJS.ErrnoException} */ (e).code })) })
   })
 }
