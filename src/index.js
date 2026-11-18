@@ -1,0 +1,8 @@
+export { openContext } from './context.js'
+export { Store } from './store.js'
+export { createEmbedder, DEFAULT_MODEL } from './embed.js'
+export { indexFolder, sourceFiles, walkMarkdown } from './indexer.js'
+export { search, ftsQuery } from './search.js'
+export { chunkMarkdown } from './chunk.js'
+export { contextDir, claudeMemoryDir } from './paths.js'
+export { VERSION } from './version.js'

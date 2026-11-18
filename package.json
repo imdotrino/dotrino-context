@@ -1,0 +1,43 @@
+{
+  "name": "@dotrino/context",
+  "version": "0.1.0",
+  "description": "La memoria y los documentos de una carpeta, buscables por significado y por palabra, en tu máquina. Servidor MCP para Claude Code.",
+  "main": "src/index.js",
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  },
+  "keywords": [
+    "dotrino",
+    "mcp",
+    "claude-code",
+    "rag",
+    "sqlite",
+    "embeddings"
+  ],
+  "license": "MIT",
+  "type": "module",
+  "dependencies": {
+    "@dotrino/update": "0.12.1",
+    "@huggingface/transformers": "4.3.2",
+    "@modelcontextprotocol/sdk": "1.32.2",
+    "zod": "4.6.7"
+  },
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "bin": {
+    "dotrino-context": "bin/dotrino-context.js"
+  },
+  "files": [
+    "src",
+    "bin",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=22.13"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/imdotrino/dotrino-context.git"
+  }
+}
