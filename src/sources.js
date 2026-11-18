@@ -8,7 +8,8 @@ import crypto from 'node:crypto'
 import readline from 'node:readline'
 import { execFileSync } from 'node:child_process'
 import { chunkMarkdown, splitLong } from './chunk.js'
-import { claudeMemoryDir, CONTEXT_DIRNAME } from './paths.js'
+import { CONTEXT_DIRNAME, projectSlug } from './paths.js'
+import os from 'node:os'
 import { loadIgnore } from './ignore.js'
 import { redact } from './redact.js'
 
@@ -183,7 +184,50 @@ function conversation (file, { now = Date.now } = {}) {
 }
 
 /**
- * Todas las fuentes de una carpeta.
+ * Las carpetas de Claude Code (`~/.claude/projects/<slug>`) de esta raíz y de sus
+ * subcarpetas. El slug es ambiguo (`/a/b-c` y `/a/b/c` dan lo mismo), así que una carpeta que
+ * no es la de la raíz entra solo si alguna de sus conversaciones dice que se abrió dentro.
+ * @param {string} root
+ * @param {{ home?: string }} [opts]
+ * @returns {string[]}
+ */
+export function projectDirs (root, { home = os.homedir() } = {}) {
+  const base = path.join(home, '.claude', 'projects')
+  if (!fs.existsSync(base)) return []
+  const slug = projectSlug(root)
+  const out = []
+  for (const e of fs.readdirSync(base, { withFileTypes: true })) {
+    if (!e.isDirectory()) continue
+    const dir = path.join(base, e.name)
+    if (e.name === slug) out.push(dir)
+    else if (e.name.startsWith(`${slug}-`) && openedUnder(dir, root)) out.push(dir)
+  }
+  return out
+}
+
+/**
+ * ¿Alguna conversación de esta carpeta de Claude se abrió dentro de `root`? Se lee el `cwd`
+ * de las primeras líneas de cada `.jsonl`.
+ * @param {string} dir @param {string} root
+ */
+function openedUnder (dir, root) {
+  const prefix = path.resolve(root) + path.sep
+  for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (!e.isFile() || !e.name.endsWith('.jsonl')) continue
+    const fd = fs.openSync(path.join(dir, e.name), 'r')
+    try {
+      const buf = Buffer.alloc(64 * 1024)
+      const n = fs.readSync(fd, buf, 0, buf.length, 0)
+      const m = buf.toString('utf8', 0, n).match(/"cwd":"((?:[^"\\]|\\.)*)"/)
+      if (m) return (JSON.parse(`"${m[1]}"`) + path.sep).startsWith(prefix)
+    } finally { fs.closeSync(fd) }
+  }
+  return false
+}
+
+/**
+ * Todas las fuentes de una carpeta: sus `.md` y repos, y la memoria y las conversaciones de
+ * Claude Code abiertas en ella o en cualquiera de sus subcarpetas.
  * @param {string} root
  * @param {{ home?: string, now?: () => number }} [opts]
  */
@@ -192,14 +236,13 @@ export function containers (root, opts = {}) {
   const { md, repos } = walk(dir)
   /** @type {Container[]} */
   const out = md.map(f => markdownFile(f, 'doc'))
-  const mem = claudeMemoryDir(dir, opts)
-  const projectDir = path.dirname(mem)
-  if (fs.existsSync(mem)) {
-    for (const e of fs.readdirSync(mem, { withFileTypes: true })) if (e.isFile() && e.name.endsWith('.md')) out.push(markdownFile(path.join(mem, e.name), 'memory'))
-  }
   for (const r of repos) out.push(gitRepo(r))
-  if (fs.existsSync(projectDir)) {
-    for (const e of fs.readdirSync(projectDir, { withFileTypes: true })) if (e.isFile() && e.name.endsWith('.jsonl')) out.push(conversation(path.join(projectDir, e.name), opts))
+  for (const pd of projectDirs(dir, opts)) {
+    const mem = path.join(pd, 'memory')
+    if (fs.existsSync(mem)) {
+      for (const e of fs.readdirSync(mem, { withFileTypes: true })) if (e.isFile() && e.name.endsWith('.md')) out.push(markdownFile(path.join(mem, e.name), 'memory'))
+    }
+    for (const e of fs.readdirSync(pd, { withFileTypes: true })) if (e.isFile() && e.name.endsWith('.jsonl')) out.push(conversation(path.join(pd, e.name), opts))
   }
   return out
 }

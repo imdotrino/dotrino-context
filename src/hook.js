@@ -18,8 +18,8 @@ export const HOOK_K = 6
  */
 export const HOOK_MIN_SCORE = 0
 
-/** @param {{ root: string, stdin?: NodeJS.ReadableStream, out?: NodeJS.WritableStream }} opts */
-export async function runHook ({ root, stdin = process.stdin, out = process.stdout }) {
+/** @param {{ start: string, stdin?: NodeJS.ReadableStream, out?: NodeJS.WritableStream }} opts */
+export async function runHook ({ start, stdin = process.stdin, out = process.stdout }) {
   let raw = ''
   for await (const chunk of stdin) raw += chunk
   const input = raw ? JSON.parse(raw) : {}
@@ -27,7 +27,8 @@ export async function runHook ({ root, stdin = process.stdin, out = process.stdo
   if (!worthSearching(prompt)) return
   let results
   try {
-    results = await ask(input.cwd || root, { query: prompt.slice(0, 2000), k: HOOK_K, minScore: HOOK_MIN_SCORE })
+    // Cada carpeta tiene su servidor; él ya sabe qué bases de arriba consultar.
+    results = await ask(input.cwd || start, { query: prompt.slice(0, 2000), k: HOOK_K, minScore: HOOK_MIN_SCORE })
   } catch (e) {
     // Sin servidor no hay contexto: se dice en una línea, no se calla.
     out.write(`dotrino-context: no context added (${/** @type {any} */ (e).code || 'error'}: ${/** @type {any} */ (e).message})\n`)

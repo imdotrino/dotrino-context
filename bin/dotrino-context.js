@@ -7,6 +7,7 @@ import { serve } from '../src/mcp.js'
 import { formatResults } from '../src/mcp.js'
 import { VERSION } from '../src/version.js'
 import { runHook } from '../src/hook.js'
+import { baseChain } from '../src/paths.js'
 
 const kinds = (/** @type {Record<string, number>} */ k) => Object.entries(k).map(([a, b]) => `${a} ${b}`).join(', ')
 const es = /^es/i.test(process.env.LC_ALL || process.env.LC_MESSAGES || process.env.LANG || '')
@@ -26,7 +27,7 @@ Opciones:
   --k <n>            cuántos resultados (search, por defecto 8)
   --version`,
       indexed: (/** @type {any} */ r, /** @type {any} */ s) => `${r.added} nuevos, ${r.updated} cambiados, ${r.removed} quitados, ${r.skipped} saltados · ${s.chunks} trozos (${kinds(s.byKind)})`,
-      status: (/** @type {any} */ s) => `carpeta: ${s.root}\nfuentes: ${s.sources}\ntrozos: ${s.chunks} (${kinds(s.byKind)})\nmodelo: ${s.model || '—'}\nindexado: ${s.indexedAt || 'nunca'}${s.skipped.length ? `\nsaltados por tamaño (>512 KB):\n  ${s.skipped.join('\n  ')}` : ''}`,
+      status: (/** @type {any} */ s) => `carpeta: ${s.root}${s.chain.length > 1 ? `\nsubcontexto: ${s.chain.slice(1).join(', ')}` : ''}\nfuentes: ${s.sources}\ntrozos: ${s.chunks} (${kinds(s.byKind)})\nmodelo: ${s.model || '—'}\nindexado: ${s.indexedAt || 'nunca'}${s.skipped.length ? `\nsaltados por tamaño (>512 KB):\n  ${s.skipped.join('\n  ')}` : ''}`,
       noQuery: 'Falta qué buscar: dotrino-context search <texto>'
     }
   : {
@@ -44,7 +45,7 @@ Options:
   --k <n>            number of results (search, default 8)
   --version`,
       indexed: (/** @type {any} */ r, /** @type {any} */ s) => `${r.added} new, ${r.updated} changed, ${r.removed} removed, ${r.skipped} skipped · ${s.chunks} chunks (${kinds(s.byKind)})`,
-      status: (/** @type {any} */ s) => `folder: ${s.root}\nsources: ${s.sources}\nchunks: ${s.chunks} (${kinds(s.byKind)})\nmodel: ${s.model || '—'}\nindexed: ${s.indexedAt || 'never'}${s.skipped.length ? `\nskipped by size (>512 KB):\n  ${s.skipped.join('\n  ')}` : ''}`,
+      status: (/** @type {any} */ s) => `folder: ${s.root}${s.chain.length > 1 ? `\nsub-context: ${s.chain.slice(1).join(', ')}` : ''}\nsources: ${s.sources}\nchunks: ${s.chunks} (${kinds(s.byKind)})\nmodel: ${s.model || '—'}\nindexed: ${s.indexedAt || 'never'}${s.skipped.length ? `\nskipped by size (>512 KB):\n  ${s.skipped.join('\n  ')}` : ''}`,
       noQuery: 'Missing what to search: dotrino-context search <text>'
     }
 
@@ -53,8 +54,11 @@ const { values, positionals } = parseArgs({
   options: { root: { type: 'string' }, k: { type: 'string' }, version: { type: 'boolean' }, help: { type: 'boolean', short: 'h' } }
 })
 const [cmd, ...rest] = positionals
-// Claude Code pasa la carpeta del proyecto en CLAUDE_PROJECT_DIR; si no, la actual.
-const root = path.resolve(values.root || process.env.CLAUDE_PROJECT_DIR || process.cwd())
+// Claude Code pasa la carpeta del proyecto en CLAUDE_PROJECT_DIR; si no, la actual. Esa
+// carpeta tiene su base propia, y las de sus padres entran como subcontexto (baseChain).
+const start = path.resolve(values.root || process.env.CLAUDE_PROJECT_DIR || process.cwd())
+const root = start
+const chain = baseChain(start)
 
 async function notice () {
   const { printUpdateNotice } = await import('@dotrino/update/notice')
@@ -64,11 +68,11 @@ async function notice () {
 if (values.version) {
   console.log(VERSION)
 } else if (cmd === 'serve') {
-  await serve({ root })
+  await serve({ root, chain })
 } else if (cmd === 'hook') {
-  await runHook({ root })
+  await runHook({ start })
 } else if (cmd === 'index') {
-  const ctx = openContext({ root, log: m => process.stderr.write(`${m}\n`) })
+  const ctx = openContext({ root, chain, log: m => process.stderr.write(`${m}\n`) })
   const r = await ctx.reindex()
   console.log(t.indexed(r, ctx.stats()))
   ctx.close()
@@ -76,12 +80,12 @@ if (values.version) {
 } else if (cmd === 'search') {
   const q = rest.join(' ').trim()
   if (!q) { console.error(t.noQuery); process.exit(2) }
-  const ctx = openContext({ root, log: m => process.stderr.write(`${m}\n`) })
+  const ctx = openContext({ root, chain, log: m => process.stderr.write(`${m}\n`) })
   console.log(formatResults(await ctx.search(q, { k: values.k ? Number(values.k) : undefined })))
   ctx.close()
   await notice()
 } else if (cmd === 'status') {
-  const ctx = openContext({ root })
+  const ctx = openContext({ root, chain })
   console.log(t.status(ctx.stats()))
   ctx.close()
   await notice()

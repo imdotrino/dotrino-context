@@ -84,3 +84,28 @@ test('conversations: user text and replies only, quiet files only', async () => 
 test('cleanUserText drops command wrappers', () => {
   assert.equal(cleanUserText('<command-name>/clear</command-name>'), '')
 })
+
+test('baseChain: own folder first, then parents while they have a base', async () => {
+  const { baseChain } = await import('../src/paths.js')
+  const top = fs.mkdtempSync(path.join(os.tmpdir(), 'dctx-'))
+  const a = path.join(top, 'a'); const b = path.join(a, 'b'); const c = path.join(b, 'c')
+  fs.mkdirSync(c, { recursive: true })
+  fs.mkdirSync(path.join(top, '.dotrino-context'))   // top tiene base, pero a NO: corta la cadena
+  fs.mkdirSync(path.join(b, '.dotrino-context'))
+  assert.deepEqual(baseChain(c), [c, b])
+  assert.deepEqual(baseChain(b), [b])
+  assert.deepEqual(baseChain(a), [a, top])
+})
+
+test('sessions of subfolders count only if they were opened inside the root', async () => {
+  const { projectDirs } = await import('../src/sources.js')
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'dctx-home-'))
+  const root = '/x/proj'
+  const base = path.join(home, '.claude', 'projects')
+  const mk = (/** @type {string} */ slug, /** @type {string} */ cwd) => { fs.mkdirSync(path.join(base, slug), { recursive: true }); fs.writeFileSync(path.join(base, slug, 's.jsonl'), JSON.stringify({ type: 'user', cwd }) + '\n') }
+  mk('-x-proj', '/x/proj')
+  mk('-x-proj-app', '/x/proj/app')
+  mk('-x-proj-other', '/x/proj-other')            // mismo prefijo de slug, otra carpeta
+  const got = projectDirs(root, { home }).map(d => path.basename(d)).sort()
+  assert.deepEqual(got, ['-x-proj', '-x-proj-app'])
+})

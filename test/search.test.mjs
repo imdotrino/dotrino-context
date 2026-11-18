@@ -52,7 +52,7 @@ test('indexes, skips node_modules, finds by word and reindexes changes', async (
   fs.mkdirSync(mem, { recursive: true })
   fs.writeFileSync(path.join(mem, 'nota.md'), '---\ndescription: recordatorio del acta\n---\ntexto\n')
 
-  const ctx = openContext({ root, embedder: fakeEmbedder(), reranker: null, store: new Store(':memory:'), home, refreshMs: 0 })
+  const ctx = openContext({ root, embedder: fakeEmbedder(), reranker: null, stores: [new Store(':memory:')], home, refreshMs: 0 })
   const r1 = await ctx.reindex()
   assert.equal(r1.added, 3)
   const hits = await ctx.search('maestra acta')
@@ -79,7 +79,7 @@ test('the context folder ignores itself in git', () => {
 })
 
 test('refuses to index the home folder', () => {
-  assert.throws(() => openContext({ root: os.homedir(), embedder: fakeEmbedder(), reranker: null, store: new Store(':memory:') }), { code: 'root-too-broad' })
+  assert.throws(() => openContext({ root: os.homedir(), embedder: fakeEmbedder(), reranker: null, stores: [new Store(':memory:')] }), { code: 'root-too-broad' })
 })
 
 test('a base from another schema version is thrown away and rebuilt', () => {
@@ -98,10 +98,27 @@ test('a base from another schema version is thrown away and rebuilt', () => {
 test('the reranker reorders and the threshold drops what does not answer', async () => {
   const root = tmpFolder()
   const reranker = { model: 'fake', async score (/** @type {string} */ _q, /** @type {string[]} */ texts) { return texts.map(t => t.includes('tokens dt') ? 5 : -10) } }
-  const ctx = openContext({ root, embedder: fakeEmbedder(), reranker, store: new Store(':memory:'), home: root, refreshMs: 0 })
+  const ctx = openContext({ root, embedder: fakeEmbedder(), reranker, stores: [new Store(':memory:')], home: root, refreshMs: 0 })
   await ctx.reindex()
   const hits = await ctx.search('maestra acta tema', { minScore: 0 })
   assert.equal(hits.length, 1)
   assert.equal(path.basename(hits[0].path), 'README.md')
+  ctx.close()
+})
+
+test('own base first, parent bases as sub-context, duplicates kept from the nearest', async () => {
+  const parent = tmpFolder()
+  const child = path.join(parent, 'docs')
+  const reranker = { model: 'fake', async score (/** @type {string} */ _q, /** @type {string[]} */ texts) { return texts.map(() => 1) } }
+  const own = new Store(':memory:'); const up = new Store(':memory:')
+  const ctx = openContext({ root: child, chain: [child, parent], embedder: fakeEmbedder(), reranker, stores: [own, up], home: parent, refreshMs: 0 })
+  await ctx.reindex()
+  const hits = await ctx.search('maestra acta tema', { k: 5 })
+  // vault.md está en las dos bases: sale una vez, de la propia (nivel 0), y primero.
+  assert.equal(hits.filter(h => h.path.endsWith('vault.md')).length, 1)
+  assert.equal(path.basename(hits[0].path), 'vault.md')
+  assert.equal(hits[0].level, 0)
+  // README.md solo está en la del padre: llega como subcontexto.
+  assert.equal(hits.find(h => h.path.endsWith('README.md'))?.level, 1)
   ctx.close()
 })

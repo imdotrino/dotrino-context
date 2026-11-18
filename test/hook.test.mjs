@@ -18,7 +18,7 @@ test('hook asks the server over the socket and prints the results', async () => 
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dctx-'))
   const server = await listen(root, async req => [{ path: '/x.md', kind: 'doc', date: '2026-11-18', heading: 'H', line: 3, text: `answer to ${req.query}` }], () => {})
   const out = sink()
-  await runHook({ root, stdin: Readable.from([JSON.stringify({ prompt: 'qué llave firma el acta', cwd: root })]), out: out.w })
+  await runHook({ start: root, stdin: Readable.from([JSON.stringify({ prompt: 'qué llave firma el acta', cwd: root })]), out: out.w })
   assert.match(out.get(), /\[doc 2026-11-18\] \/x\.md:3 — H\nanswer to qué llave firma el acta/)
   server?.close()
 })
@@ -26,7 +26,7 @@ test('hook asks the server over the socket and prints the results', async () => 
 test('without a server the hook says so in one line', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dctx-'))
   const out = sink()
-  await runHook({ root, stdin: Readable.from([JSON.stringify({ prompt: 'qué llave firma el acta', cwd: root })]), out: out.w })
+  await runHook({ start: root, stdin: Readable.from([JSON.stringify({ prompt: 'qué llave firma el acta', cwd: root })]), out: out.w })
   assert.match(out.get(), /^dotrino-context: no context added \(no-server/)
 })
 

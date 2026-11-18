@@ -20,6 +20,19 @@ Antes de entrar, a los commits y a las conversaciones se les tapa lo que parezca
 `.gitignore` (`*`), así que nunca entra en un commit. Se niega a indexar la carpeta personal o
 la raíz del disco.
 
+La memoria y las conversaciones de Claude Code entran de la carpeta **y de sus subcarpetas**:
+una sesión abierta en `proyecto/app` también cuenta para la base de `proyecto`. El nombre de esas
+carpetas de Claude es ambiguo, así que una entra solo si alguna de sus conversaciones dice que
+se abrió dentro.
+
+### Subcarpetas: base propia y subcontexto de arriba
+
+Cada carpeta tiene su base. Al buscar, se consulta la propia y, como **subcontexto**, la de cada
+carpeta padre, subiendo **mientras el padre tenga base** y parando en el primero que no la
+tenga. Lo de la base propia sale primero (medio punto de ventaja en el orden); lo de arriba
+llega marcado «contexto de arriba». Un mismo trozo que está en las dos sale una vez, de la
+propia. El servidor mantiene al día toda la cadena, la propia primero.
+
 ### `.dotrino-contextignore`
 
 En la raíz de la carpeta, con la sintaxis corta de `.gitignore`: sin `/` vale en cualquier

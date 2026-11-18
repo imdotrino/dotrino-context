@@ -8,7 +8,7 @@ import { VERSION } from './version.js'
 import { listen } from './socket.js'
 
 /**
- * @param {{ path: string, kind: string, date: string, line: number, heading: string, text: string }[]} results
+ * @param {{ path: string, kind: string, date: string, line: number, heading: string, text: string, level?: number }[]} results
  */
 export function formatResults (results) {
   if (!results.length) return 'No results.'
@@ -21,20 +21,21 @@ export function formatResults (results) {
     else merged.push({ ...r })
   }
   return merged.map((r, i) => {
-    const where = `[${r.kind} ${r.date}] ${r.line ? `${r.path}:${r.line}` : r.path}`
+    const from = r.level ? ` · contexto de arriba` : ''
+    const where = `[${r.kind} ${r.date}${from}] ${r.line ? `${r.path}:${r.line}` : r.path}`
     const head = r.heading ? ` — ${r.heading}` : ''
     return `[${i + 1}] ${where}${head}\n${r.text}`
   }).join('\n\n')
 }
 
-/** @param {{ root: string }} opts */
-export async function serve ({ root }) {
-  const ctx = openContext({ root, log: m => process.stderr.write(`${m}\n`) })
+/** @param {{ root: string, chain?: string[] }} opts */
+export async function serve ({ root, chain }) {
+  const ctx = openContext({ root, chain, log: m => process.stderr.write(`${m}\n`) })
   const server = new McpServer({ name: 'dotrino-context', version: VERSION })
 
   server.registerTool('search', {
     title: 'Search folder context',
-    description: 'Semantic + keyword search over this folder: its Markdown (docs, wiki, norms), its Claude Code memory notes, the git commit messages of its repos, and past Claude Code conversations in this folder. Each result says its kind (doc, memory, git, conv) and date. Results can disagree: a doc or memory note is the current state and wins over a commit or a conversation, which are history; the folder\'s CLAUDE.md and norm files win over everything; between two of the same kind, the newer one wins. Use it before opening files; Read the file at path:line before acting on a norm. For git results, `git -C <repo> show <sha>`.',
+    description: 'Semantic + keyword search over this folder: its Markdown (docs, wiki, norms), its Claude Code memory notes, the git commit messages of its repos, and past Claude Code conversations in this folder. Each result says its kind (doc, memory, git, conv) and date. Results come from this folder\'s own base and, as sub-context, from the bases of its parent folders (marked «contexto de arriba»); this folder\'s own come first. Results can disagree: a doc or memory note is the current state and wins over a commit or a conversation, which are history; the folder\'s CLAUDE.md and norm files win over everything; between two of the same kind, the newer one wins. Use it before opening files; Read the file at path:line before acting on a norm. For git results, `git -C <repo> show <sha>`.',
     inputSchema: {
       query: z.string().min(2).describe('What you are looking for, in natural language or exact terms'),
       k: z.number().int().min(1).max(30).optional().describe('How many results (default 8)'),

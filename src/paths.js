@@ -31,8 +31,7 @@ export function ensureContextDir (root) {
  * @param {{ home?: string }} [opts]
  */
 export function claudeMemoryDir (root, { home = os.homedir() } = {}) {
-  const slug = path.resolve(root).replace(/[^A-Za-z0-9]/g, '-')
-  return path.join(home, '.claude', 'projects', slug, 'memory')
+  return path.join(home, '.claude', 'projects', projectSlug(root), 'memory')
 }
 
 /** Los modelos se comparten entre carpetas: son el mismo archivo para todas. */
@@ -53,3 +52,26 @@ export function runtime ({ env = process.env } = {}) {
   // allí va fp16. En la CPU, q8.
   return device === 'cuda' ? { device, dtype: 'fp16' } : { device, dtype: 'q8' }
 }
+
+/**
+ * La cadena de bases de una carpeta: la suya primero (siempre tiene base propia) y después la
+ * de cada padre, subiendo MIENTRAS el padre tenga base (`.dotrino-context/`) y parando en el
+ * primero que no la tenga. Las de los padres son subcontexto: completan, no sustituyen.
+ * @param {string} start
+ * @returns {string[]}
+ */
+export function baseChain (start) {
+  const chain = [path.resolve(start)]
+  for (;;) {
+    const dir = chain[chain.length - 1]
+    const parent = path.dirname(dir)
+    if (parent === dir || !fs.existsSync(path.join(parent, CONTEXT_DIRNAME))) return chain
+    chain.push(parent)
+  }
+}
+
+/** @param {string} dir */
+export function projectSlug (dir) {
+  return path.resolve(dir).replace(/[^A-Za-z0-9]/g, '-')
+}
+

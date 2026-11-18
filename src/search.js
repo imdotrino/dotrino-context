@@ -51,37 +51,60 @@ export function dedupeKey (r) {
   return `${r.heading}\n${r.text}`
 }
 
-/** Cuántos candidatos lee el reordenador. */
+/**
+ * Ventaja para lo que viene de la base propia de la carpeta frente a lo que viene de la base
+ * de un padre (el subcontexto): sale primero, a igual parecido, sin esconder lo de arriba.
+ */
+export const OWN_BONUS = 0.5
+
+/** Cuántos candidatos aporta cada base al reordenador. */
 export const RERANK_POOL = 30
 
 /**
- * @param {{ store: import('./store.js').Store, embedder: import('./embed.js').Embedder, reranker?: import('./rerank.js').Reranker | null, query: string, k?: number, pathPrefix?: string, minScore?: number }} opts
+ * Busca en una cadena de bases: la propia (nivel 0) y las de los padres (subcontexto). Cada
+ * base aporta sus mejores candidatos (vectores + palabra), se quitan los repetidos quedándose
+ * con el de la base más cercana, y el reordenador los ordena todos juntos.
+ * @param {{ stores: { store: import('./store.js').Store, level: number }[], embedder: import('./embed.js').Embedder, reranker?: import('./rerank.js').Reranker | null, query: string, k?: number, pathPrefix?: string, minScore?: number, log?: (m: string) => void }} opts
  */
-export async function search ({ store, embedder, reranker = null, query, k = 8, pathPrefix, minScore }) {
-  const all = store.vectors()
-  if (!all.ids.length) return []
+export async function search ({ stores, embedder, reranker = null, query, k = 8, pathPrefix, minScore, log = () => {} }) {
+  const live = stores.filter(({ store, level }) => {
+    if (!store.vectors().ids.length) return false
+    // Vectores de otro modelo no se comparan con los de este: esa base espera su reindexación.
+    if (store.getMeta('model') !== embedder.model) { log(`search: skipping base at level ${level}: built with ${store.getMeta('model')}, not ${embedder.model}`); return false }
+    return true
+  })
+  if (!live.length) return []
   const [qv] = await embedder.embed([query], 'query')
-  const lists = [nearest(qv, all, POOL), store.lexical(ftsQuery(query), POOL)]
-  /** @type {Map<number, number>} */
-  const fused = new Map()
-  for (const list of lists) list.forEach((id, rank) => fused.set(id, (fused.get(id) || 0) + 1 / (RRF_K + rank + 1)))
-  const ranked = [...fused.entries()].sort((a, b) => b[1] - a[1]).map(([id]) => id)
+
+  /** @type {(import('./store.js').ChunkRow & { level: number, fused: number })[]} */
+  let rows = []
+  for (const { store, level } of live) {
+    const lists = [nearest(qv, store.vectors(), POOL), store.lexical(ftsQuery(query), POOL)]
+    /** @type {Map<number, number>} */
+    const fused = new Map()
+    for (const list of lists) list.forEach((id, rank) => fused.set(id, (fused.get(id) || 0) + 1 / (RRF_K + rank + 1)))
+    const ranked = [...fused.entries()].sort((a, b) => b[1] - a[1]).map(([id]) => id)
+    const got = store.chunksById(ranked)
+      .filter(r => !pathPrefix || r.path.startsWith(pathPrefix))
+      .slice(0, Math.max(RERANK_POOL, k))
+      .map(r => ({ ...r, level, fused: /** @type {number} */ (fused.get(r.id)) }))
+    rows.push(...got)
+  }
 
   // El mismo texto puede vivir en dos sitios (una copia de dotrino-native dentro de cada app
-  // nativa): se enseña una vez, en su primer sitio.
+  // nativa, o la base propia y la del padre): se queda el de la base más cercana.
+  rows.sort((a, b) => a.level - b.level || b.fused - a.fused)
   const seen = new Set()
-  let rows = store.chunksById(ranked)
-    .filter(r => !pathPrefix || r.path.startsWith(pathPrefix))
-    .filter(r => { const key = dedupeKey(r); if (seen.has(key)) return false; seen.add(key); return true })
+  rows = rows.filter(r => { const key = dedupeKey(r); if (seen.has(key)) return false; seen.add(key); return true })
 
-  /** @type {Map<number, number>} */
-  let score = fused
+  /** @type {(r: typeof rows[number]) => number} */
+  let scoreOf = r => r.fused + (r.level === 0 ? 1 : 0)
   if (reranker) {
-    rows = rows.slice(0, Math.max(RERANK_POOL, k))
     const s = await reranker.score(query, rows.map(r => `${r.heading}\n${r.text}`))
-    score = new Map(rows.map((r, i) => [r.id, s[i] + (AUTHORITY[r.kind] || 0)]))
-    rows = rows.slice().sort((a, b) => /** @type {number} */ (score.get(b.id)) - /** @type {number} */ (score.get(a.id)))
-    if (minScore !== undefined) rows = rows.filter(r => /** @type {number} */ (score.get(r.id)) >= minScore)
+    const byRow = new Map(rows.map((r, i) => [r, s[i] + (AUTHORITY[/** @type {keyof typeof AUTHORITY} */ (r.kind)] || 0) + (r.level === 0 ? OWN_BONUS : 0)]))
+    scoreOf = r => /** @type {number} */ (byRow.get(r))
   }
-  return rows.slice(0, k).map(r => ({ path: r.path, kind: r.kind, date: r.date, heading: r.heading, line: r.line, text: r.text, score: /** @type {number} */ (score.get(r.id)) }))
+  rows.sort((a, b) => scoreOf(b) - scoreOf(a))
+  if (reranker && minScore !== undefined) rows = rows.filter(r => scoreOf(r) >= minScore)
+  return rows.slice(0, k).map(r => ({ path: r.path, kind: r.kind, date: r.date, heading: r.heading, line: r.line, text: r.text, level: r.level, score: scoreOf(r) }))
 }
