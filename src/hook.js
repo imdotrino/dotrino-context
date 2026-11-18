@@ -27,9 +27,11 @@ const TAIL_BYTES = 512 * 1024
 /**
  * Por debajo de esta nota del reordenador (bge-reranker-v2-m3) el trozo no responde a la
  * pregunta. Medido el 2026-11-18 sobre 17.101 trozos: lo que no tiene nada que ver saca −5 o
- * menos; lo que responde, más de 1.
+ * menos; lo que responde, más de 1. Con 0 se colaban trozos de 0,9 en mensajes como «hazlo» o
+ * «gracias, sigue»; con 1, en una batería de 28 preguntas con fuente conocida, los aciertos son
+ * los mismos y esos mensajes quedan sin contexto, que es lo correcto.
  */
-export const HOOK_MIN_SCORE = 0
+export const HOOK_MIN_SCORE = 1
 /**
  * Corte relativo: fuera lo que queda a más de esto por debajo del mejor. Con 3 se perdían
  * fuentes vigentes (una nota de memoria a 3,0 de un commit); con 4, en 8 búsquedas medidas,
