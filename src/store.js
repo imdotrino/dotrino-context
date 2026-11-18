@@ -40,7 +40,7 @@ export class Store {
       if (file !== ':memory:') for (const f of [file, `${file}-wal`, `${file}-shm`]) fs.rmSync(f, { force: true })
       db = new DatabaseSync(file)
     }
-    db.exec('pragma auto_vacuum = incremental; pragma journal_mode = wal; pragma busy_timeout = 5000;')
+    db.exec('pragma busy_timeout = 5000; pragma auto_vacuum = incremental; pragma journal_mode = wal;')
     db.exec(SCHEMA)
     this.db = db
     this.setMeta('schema', SCHEMA_VERSION)
@@ -69,8 +69,13 @@ export class Store {
    * todo y se vuelve a indexar. Nada de mezclar.
    * @param {string} model
    */
-  ensureModel (model) {
-    if (this.getMeta('model') === model) return false
+  ensureModel (model, { rebuild = false } = {}) {
+    const built = this.getMeta('model')
+    if (built === model) return false
+    // Una base hecha con otro modelo (o la misma en otra precisión: q8 en CPU, fp16 en GPU) no
+    // se borra sola: lo hacía, y una orden lanzada sin DOTRINO_CONTEXT_DEVICE tiraba la base
+    // del servidor entera. Rehacerla es una decisión: `index --rebuild`.
+    if (built && !rebuild) throw Object.assign(new Error(`base built with ${built}, this process uses ${model}; set DOTRINO_CONTEXT_DEVICE to match, or run \`dotrino-context index --rebuild\``), { code: 'model-mismatch' })
     this.db.exec('delete from chunks; delete from chunks_fts; delete from docs; delete from containers;')
     this.setMeta('model', model)
     this.cache = null

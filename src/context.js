@@ -14,9 +14,9 @@ export const FRESH_WAIT_MS = 3_000
 
 /**
  * Abre la carpeta y su cadena de bases: la propia y las de los padres (ver `baseChain`).
- * @param {{ root: string, chain?: string[], embedder?: import('./embed.js').Embedder, reranker?: import('./rerank.js').Reranker | null, stores?: Store[], home?: string, log?: (m: string) => void, refreshMs?: number }} opts
+ * @param {{ root: string, chain?: string[], embedder?: import('./embed.js').Embedder, reranker?: import('./rerank.js').Reranker | null, stores?: Store[], home?: string, log?: (m: string) => void, refreshMs?: number, rebuild?: boolean }} opts
  */
-export function openContext ({ root, chain, embedder = createEmbedder(), reranker = createReranker(), stores, home, log = () => {}, refreshMs = REFRESH_MS }) {
+export function openContext ({ root, chain, embedder = createEmbedder(), reranker = createReranker(), stores, home, log = () => {}, refreshMs = REFRESH_MS, rebuild = false }) {
   const dirs = (chain || [root]).map(d => path.resolve(d))
   for (const dir of dirs) {
     // Indexar la carpeta personal o la raíz recorrería todo el disco. No se intenta: se dice.
@@ -33,7 +33,7 @@ export function openContext ({ root, chain, embedder = createEmbedder(), reranke
   const reindex = () => {
     if (!running) {
       running = (async () => {
-        const own = await indexFolder({ root: dirs[0], store: dbs[0], embedder, home, log })
+        const own = await indexFolder({ root: dirs[0], store: dbs[0], embedder, home, rebuild, log })
         for (let i = 1; i < dirs.length; i++) await indexFolder({ root: dirs[i], store: dbs[i], embedder, home, log })
         return own
       })().finally(() => { running = null; lastRun = Date.now() })

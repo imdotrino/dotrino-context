@@ -79,6 +79,11 @@ Con `DOTRINO_CONTEXT_DEVICE=cuda` los modelos corren en la GPU, en fp16. Hace fa
 
 Si se pide `cuda` y no está, falla al cargar el modelo y lo dice: no vuelve a la CPU en silencio.
 
+La base guarda con qué modelo y precisión se hizo (fp16 en GPU, q8 en CPU) y **no se rehace
+sola**: una orden con otra precisión se niega (`model-mismatch`). Para cambiarla,
+`dotrino-context index --rebuild`. `search` le pregunta al servidor si está en marcha, así que
+no carga los modelos ni toca la base.
+
 Medido sobre 17.101 trozos (RTX 4060 Ti): indexar todo, 2 min 8 s en GPU contra 11 min 17 s en
 CPU; una búsqueda con reordenador, ~400 ms.
 

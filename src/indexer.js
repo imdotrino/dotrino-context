@@ -4,10 +4,10 @@ import fs from 'node:fs'
 import { containers as listContainers, MAX_FILE_BYTES } from './sources.js'
 
 /**
- * @param {{ root: string, store: import('./store.js').Store, embedder: import('./embed.js').Embedder, home?: string, now?: () => number, log?: (msg: string) => void }} opts
+ * @param {{ root: string, store: import('./store.js').Store, embedder: import('./embed.js').Embedder, home?: string, now?: () => number, rebuild?: boolean, log?: (msg: string) => void }} opts
  */
-export async function indexFolder ({ root, store, embedder, home, now, log = () => {} }) {
-  if (store.ensureModel(embedder.model)) log(`index: fresh index for model ${embedder.model}`)
+export async function indexFolder ({ root, store, embedder, home, now, rebuild = false, log = () => {} }) {
+  if (store.ensureModel(embedder.model, { rebuild })) log(`index: fresh index for model ${embedder.model}`)
   const known = store.containers()
   const seen = new Set()
   /** @type {string[]} */

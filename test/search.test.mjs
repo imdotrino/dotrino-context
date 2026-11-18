@@ -151,3 +151,13 @@ test('at most two chunks per document, and memory ranks over a doc at equal answ
   assert.equal(hits.filter(h => h.path === '/big.md').length, 2)
   assert.equal(hits[0].kind, 'memory')
 })
+
+test('a base built with another model is not wiped unless asked', () => {
+  const s = new Store(':memory:')
+  assert.equal(s.ensureModel('m@fp16'), true)
+  assert.equal(s.ensureModel('m@fp16'), false)
+  assert.throws(() => s.ensureModel('m@q8'), e => e.code === 'model-mismatch')
+  assert.equal(s.getMeta('model'), 'm@fp16')
+  assert.equal(s.ensureModel('m@q8', { rebuild: true }), true)
+  assert.equal(s.getMeta('model'), 'm@q8')
+})
