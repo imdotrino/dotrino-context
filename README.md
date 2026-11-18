@@ -13,19 +13,21 @@ carpeta. Se usa como servidor MCP de Claude Code.
 | `doc` | Todos los `.md` de la carpeta, salvo carpetas ocultas, `node_modules`, `dist`, `build`, `target`, `coverage`, `vendor`, `out`, `Pods`, `DerivedData` y lo que diga `.dotrino-contextignore`. Los de más de 512 KB se saltan y `status` los lista. | al cambiar fecha o tamaño |
 | `memory` | La memoria de Claude Code de esa carpeta (`~/.claude/projects/<carpeta>/memory`). | ídem |
 | `git` | Los mensajes de commit de cada repo que haya en la carpeta, uno por commit. | al cambiar el HEAD |
-| `conv` | Las conversaciones de Claude Code de esa carpeta: solo lo que dijo la persona y el texto de la respuesta. Fuera herramientas, salidas y razonamiento. | cuando llevan 10 min sin cambiar |
 
-Antes de entrar, a los commits y a las conversaciones se les tapa lo que parezca un secreto
-(llaves privadas, tokens conocidos, `password=…`). Es una red, no una garantía.
+Antes de entrar, a los commits se les tapa lo que parezca un secreto (llaves privadas, tokens
+conocidos, `password=…`). Es una red, no una garantía.
+
+**Las conversaciones de Claude Code NO se indexan** (desde la 0.1.4). Se probaron y eran la
+fuente principal de ruido: material sin curar, y lo que valía de ellas ya vivía en una nota de
+memoria o en un `.md`.
 
 **Una base por carpeta**: `<carpeta>/.dotrino-context/index.db`. La carpeta lleva su propio
 `.gitignore` (`*`), así que nunca entra en un commit. Se niega a indexar la carpeta personal o
 la raíz del disco.
 
-La memoria y las conversaciones de Claude Code entran de la carpeta **y de sus subcarpetas**:
-una sesión abierta en `proyecto/app` también cuenta para la base de `proyecto`. El nombre de esas
-carpetas de Claude es ambiguo, así que una entra solo si alguna de sus conversaciones dice que
-se abrió dentro.
+La memoria de Claude Code entra de la carpeta **y de sus subcarpetas**: una sesión abierta en
+`proyecto/app` también cuenta para la base de `proyecto`. El nombre de esas carpetas de Claude es
+ambiguo, así que una entra solo si alguna de sus conversaciones dice que se abrió dentro.
 
 ### Subcarpetas: base propia y subcontexto de arriba
 
@@ -45,7 +47,7 @@ excluye también los commits de los repos que tenga dentro.
 
 La base no decide qué es verdad: cada resultado dice su **tipo** y su **fecha**, y la regla está
 en la descripción de la herramienta. Un `doc` o una `memory` son el estado actual y ganan a un
-`git` o una `conv`, que son historia; los documentos de norma de la carpeta ganan a todo; entre
+`git`, que es historia; los documentos de norma de la carpeta ganan a todo; entre
 dos del mismo tipo, gana el más nuevo. Para corregir lo que la base devuelve, se corrige la
 fuente: el `.md`, o una nota de memoria con la decisión vigente.
 
@@ -57,7 +59,7 @@ fuente: el `.md`, o una nota de memoria con la decisión vigente.
 3. Las dos listas se juntan por rango recíproco, y un **reordenador**
    (`onnx-community/bge-reranker-v2-m3-ONNX`, multilingüe) lee la pregunta junto a cada uno de
    los 30 primeros candidatos y los ordena. Los documentos y la memoria llevan un punto de
-   ventaja sobre los commits y las conversaciones.
+   ventaja sobre los commits (la memoria, uno y medio).
 4. Un commit que está en dos repos sale una vez; dos trozos de la misma sección salen juntos.
 
 Los modelos se bajan una vez a `~/.cache/dotrino/models`. Los vectores van como BLOB en

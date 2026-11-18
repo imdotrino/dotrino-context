@@ -16,13 +16,11 @@ import { redact } from './redact.js'
 /** Carpetas que nunca son documentación: dependencias, compilados, cachés. */
 export const SKIP_DIRS = new Set(['node_modules', 'dist', 'build', 'target', 'coverage', 'vendor', 'out', 'Pods', 'DerivedData', CONTEXT_DIRNAME])
 export const MAX_FILE_BYTES = 512 * 1024
-/** Una conversación entra cuando lleva este rato sin cambiar: la que está en curso ya está en contexto. */
-export const QUIET_MS = 10 * 60 * 1000
 
 /**
  * @typedef {import('./chunk.js').Chunk} Chunk
  * @typedef {{ key: string, path: string, version: string, date: string, chunks: Chunk[] }} Doc
- * @typedef {{ key: string, kind: 'doc' | 'memory' | 'git' | 'conv', stamp: () => string | null, docs: () => AsyncIterable<Doc> | Iterable<Doc> }} Container
+ * @typedef {{ key: string, kind: 'doc' | 'memory' | 'git', stamp: () => string, docs: () => AsyncIterable<Doc> | Iterable<Doc> }} Container
  */
 
 const sha = (/** @type {string} */ s) => crypto.createHash('sha256').update(s).digest('hex')
@@ -129,40 +127,6 @@ export function cleanUserText (s) {
     .trim()
 }
 
-/** Sube cuando cambia cómo se lee una conversación (2: fuera los avisos de tareas y hooks). */
-export const CONV_READER = 2
-
-const USER_MAX = 2000
-const ASSISTANT_MAX = 4000
-
-/**
- * Una conversación de Claude Code: un documento por turno (lo que dijo la persona y lo que
- * se le respondió en texto). Fuera las herramientas, sus salidas y el razonamiento.
- * @param {string} file
- * @param {{ now?: () => number }} [opts]
- * @returns {Container}
- */
-function conversation (file, { now = Date.now } = {}) {
-  return {
-    key: file,
-    kind: 'conv',
-    stamp () {
-      const st = fs.statSync(file)
-      if (now() - st.mtimeMs < QUIET_MS) return null
-      // La versión del lector va en el sello: si cambia cómo se limpia una conversación, se
-      // vuelven a leer todas, aunque el archivo no haya cambiado.
-      return `${st.mtimeMs}:${st.size}:${CONV_READER}`
-    },
-    async * docs () {
-      const rl = readline.createInterface({ input: fs.createReadStream(file, 'utf8'), crlfDelay: Infinity })
-      for await (const t of readTurns(rl)) {
-        const text = turnText(t)
-        yield { key: `conv:${file}:${t.line}`, path: file, version: sha(text), date: t.date, chunks: splitLong(text).map(c => ({ heading: `conversación ${t.date}`, line: t.line, text: c })) }
-      }
-    }
-  }
-}
-
 /**
  * @typedef {{ line: number, date: string, user: string, reply: string[] }} Turn
  */
@@ -170,7 +134,9 @@ function conversation (file, { now = Date.now } = {}) {
 /**
  * Los turnos de una transcripción de Claude Code: lo que dijo la persona y el texto de lo que
  * se le respondió. Fuera herramientas, sus salidas, el razonamiento y los avisos automáticos.
- * Lo usan el índice (las conversaciones) y el hook (la conversación en curso).
+ * Lo usa el hook, para leer el turno anterior de la conversación en curso. Las conversaciones
+ * NO se indexan (decisión del dueño, 2026-11-18): eran la fuente principal de ruido y lo que
+ * valía de ellas ya vive en una nota de memoria o en un `.md`.
  * @param {AsyncIterable<string> | Iterable<string>} lines
  * @param {number} [firstLine]  número de la primera línea, para que `line` apunte al archivo
  * @returns {AsyncGenerator<Turn>}
@@ -198,12 +164,6 @@ export async function * readTurns (lines, firstLine = 1) {
     }
   }
   if (turn) yield turn
-}
-
-/** @param {Turn} t */
-export function turnText (t) {
-  const reply = t.reply.join('\n\n').slice(0, ASSISTANT_MAX)
-  return redact(`Usuario: ${t.user.slice(0, USER_MAX)}${reply ? `\n\nClaude: ${reply}` : ''}`)
 }
 
 /**
@@ -249,8 +209,8 @@ function openedUnder (dir, root) {
 }
 
 /**
- * Todas las fuentes de una carpeta: sus `.md` y repos, y la memoria y las conversaciones de
- * Claude Code abiertas en ella o en cualquiera de sus subcarpetas.
+ * Todas las fuentes de una carpeta: sus `.md` y repos, y la memoria de Claude Code de ella y
+ * de cualquiera de sus subcarpetas.
  * @param {string} root
  * @param {{ home?: string, now?: () => number }} [opts]
  */
@@ -266,7 +226,6 @@ export function containers (root, opts = {}) {
       // MEMORY.md es el índice: una línea por nota, que ya están indexadas. Solo repetiría.
       for (const e of fs.readdirSync(mem, { withFileTypes: true })) if (e.isFile() && e.name.endsWith('.md') && e.name !== 'MEMORY.md') out.push(markdownFile(path.join(mem, e.name), 'memory'))
     }
-    for (const e of fs.readdirSync(pd, { withFileTypes: true })) if (e.isFile() && e.name.endsWith('.jsonl')) out.push(conversation(path.join(pd, e.name), opts))
   }
   return out
 }

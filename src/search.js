@@ -36,17 +36,16 @@ export function nearest (q, all, limit) {
 
 /**
  * Ventaja en el orden para lo que es estado actual (un documento, una nota de memoria) frente
- * a lo que es historia (un commit, una conversación), a igual parecido. Es la misma regla de
+ * a lo que es historia (un commit), a igual parecido. Es la misma regla de
  * precedencia que se le da a quien lee los resultados.
  */
-export const AUTHORITY = { doc: 1, memory: 1.5, git: 0, conv: 0 }
+export const AUTHORITY = { doc: 1, memory: 1.5, git: 0 }
 
 /**
- * Cuántos trozos de una misma fuente pueden salir juntos. Cuatro turnos de la misma
- * conversación cuentan lo mismo y tapan a la fuente vigente; dos secciones de un documento
- * todavía pueden aportar cosas distintas. Un commit es ya una fuente por sí mismo.
+ * Cuántos trozos de una misma fuente pueden salir juntos: dos secciones de un documento
+ * todavía pueden aportar cosas distintas; un commit es ya una fuente por sí mismo.
  */
-export const PER_SOURCE = { conv: 1, doc: 2, memory: 2, git: 1 }
+export const PER_SOURCE = { doc: 2, memory: 2, git: 1 }
 
 /**
  * Un commit que está en dos repos (uno es copia del otro) es el mismo commit: cuenta su hash,

@@ -1,6 +1,6 @@
 {
   "name": "@dotrino/context",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "La memoria y los documentos de una carpeta, buscables por significado y por palabra, en tu máquina. Servidor MCP para Claude Code.",
   "main": "src/index.js",
   "scripts": {

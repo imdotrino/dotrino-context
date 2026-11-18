@@ -107,6 +107,6 @@ export async function runHook ({ start, stdin = process.stdin, out = process.std
   if (!fresh.length) return
   if (session) fs.writeFileSync(session, JSON.stringify([...seen, ...fresh.map(key)].slice(-SEEN_MAX)))
 
-  out.write('Contexto relevante de dotrino-context para este mensaje y lo que se venía hablando. Cada resultado dice su tipo y fecha: doc y memory son el estado actual y ganan a git y conv (historia); la norma de la carpeta gana a todo; entre iguales, el más nuevo. Si vas a actuar según una norma, lee la sección entera.\n\n')
+  out.write('Contexto relevante de dotrino-context para este mensaje y lo que se venía hablando. Cada resultado dice su tipo y fecha: doc y memory son el estado actual y ganan a git (historia); la norma de la carpeta gana a todo; entre iguales, el más nuevo. Si vas a actuar según una norma, lee la sección entera.\n\n')
   out.write(formatResults(fresh) + '\n')
 }

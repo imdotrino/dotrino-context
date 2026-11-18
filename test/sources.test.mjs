@@ -50,35 +50,31 @@ test('commit messages become one doc each', async () => {
   assert.match(docs[1].path, /@[0-9a-f]{10}$/)
 })
 
-test('conversations: user text and replies only, quiet files only', async () => {
+test('readTurns keeps what the person wrote and the reply text, nothing else', async () => {
+  const { readTurns } = await import('../src/sources.js')
+  const lines = [
+    { type: 'user', timestamp: '2026-11-01T10:00:00Z', message: { role: 'user', content: '<system-reminder>noise</system-reminder>¿qué llave firma el acta?' } },
+    { type: 'assistant', message: { content: [{ type: 'thinking', thinking: 'x' }, { type: 'text', text: 'La maestra.' }, { type: 'tool_use', name: 'Bash' }] } },
+    { type: 'user', message: { content: [{ type: 'tool_result', content: 'tool output' }] } },
+    { type: 'user', isMeta: true, message: { content: 'meta' } },
+    { type: 'user', message: { content: '<task-notification><summary>x</summary></task-notification>' } }
+  ].map(l => JSON.stringify(l))
+  const turns = []
+  for await (const t of readTurns(lines)) turns.push(t)
+  assert.equal(turns.length, 1)
+  assert.equal(turns[0].user, '¿qué llave firma el acta?')
+  assert.deepEqual(turns[0].reply, ['La maestra.'])
+})
+
+test('conversations are not indexed', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dctx-'))
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'dctx-home-'))
   const proj = path.join(home, '.claude', 'projects', path.resolve(root).replace(/[^A-Za-z0-9]/g, '-'))
-  fs.mkdirSync(proj, { recursive: true })
-  const lines = [
-    { type: 'user', timestamp: '2026-11-01T10:00:00Z', message: { role: 'user', content: '<system-reminder>noise</system-reminder>¿qué llave firma el acta?' } },
-    { type: 'assistant', message: { content: [{ type: 'thinking', thinking: 'secret thoughts' }, { type: 'text', text: 'La maestra.' }, { type: 'tool_use', name: 'Bash' }] } },
-    { type: 'user', message: { content: [{ type: 'tool_result', content: 'tool output' }] } },
-    { type: 'user', isMeta: true, message: { content: 'meta' } },
-    { type: 'user', timestamp: '2026-11-01T10:05:00Z', message: { content: 'gracias, token=abcdef123456' } }
-  ]
-  const f = path.join(proj, 's.jsonl')
-  fs.writeFileSync(f, lines.map(l => JSON.stringify(l)).join('\n') + '\n')
-  const old = new Date(Date.now() - 3600_000)
-  fs.utimesSync(f, old, old)
-  const c = containers(root, { home }).find(x => x.kind === 'conv')
-  assert.ok(c && c.stamp() !== null)
-  const docs = []
-  for await (const d of c.docs()) docs.push(d)
-  assert.equal(docs.length, 2)
-  assert.equal(docs[0].chunks[0].text, 'Usuario: ¿qué llave firma el acta?\n\nClaude: La maestra.')
-  assert.equal(docs[0].date, '2026-11-01')
-  assert.equal(docs[0].chunks[0].line, 1)
-  assert.doesNotMatch(docs[1].chunks[0].text, /abcdef123456/)
-
-  const fresh = containers(root, { home, now: () => Date.now() + 0 })
-  fs.utimesSync(f, new Date(), new Date())
-  assert.equal(fresh.find(x => x.kind === 'conv')?.stamp(), null)
+  fs.mkdirSync(path.join(proj, 'memory'), { recursive: true })
+  fs.writeFileSync(path.join(proj, 's.jsonl'), JSON.stringify({ type: 'user', message: { content: 'hola' } }) + '\n')
+  fs.writeFileSync(path.join(proj, 'memory', 'nota.md'), '# nota')
+  const kinds = containers(root, { home }).map(c => c.kind)
+  assert.deepEqual(kinds, ['memory'])
 })
 
 test('cleanUserText drops command wrappers', () => {
