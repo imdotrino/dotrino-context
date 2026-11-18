@@ -4,6 +4,8 @@ La memoria y los documentos de una carpeta, buscables por significado y por pala
 corre en tu máquina: los vectores los calcula un modelo local y la base vive dentro de la
 carpeta. Se usa como servidor MCP de Claude Code.
 
+**Uso:** [wiki.dotrino.com/desarrollo/contexto](https://wiki.dotrino.com/desarrollo/contexto/). Este README es técnico.
+
 ## Qué indexa
 
 | Tipo | Qué | Cuándo entra |
