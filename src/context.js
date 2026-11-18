@@ -47,7 +47,7 @@ export function openContext ({ root, chain, embedder = createEmbedder(), reranke
     chain: dirs,
     store: dbs[0],
     reindex,
-    /** @param {string} query @param {{ k?: number, pathPrefix?: string, minScore?: number }} [opts] */
+    /** @param {string} query @param {{ k?: number, pathPrefix?: string, minScore?: number, maxGap?: number }} [opts] */
     async search (query, opts = {}) {
       // Con la base vacía no hay nada que buscar: se espera a la primera pasada. Con datos, se
       // busca en lo que hay y la pasada sigue por detrás: una primera indexación larga (los

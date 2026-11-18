@@ -240,7 +240,8 @@ export function containers (root, opts = {}) {
   for (const pd of projectDirs(dir, opts)) {
     const mem = path.join(pd, 'memory')
     if (fs.existsSync(mem)) {
-      for (const e of fs.readdirSync(mem, { withFileTypes: true })) if (e.isFile() && e.name.endsWith('.md')) out.push(markdownFile(path.join(mem, e.name), 'memory'))
+      // MEMORY.md es el índice: una línea por nota, que ya están indexadas. Solo repetiría.
+      for (const e of fs.readdirSync(mem, { withFileTypes: true })) if (e.isFile() && e.name.endsWith('.md') && e.name !== 'MEMORY.md') out.push(markdownFile(path.join(mem, e.name), 'memory'))
     }
     for (const e of fs.readdirSync(pd, { withFileTypes: true })) if (e.isFile() && e.name.endsWith('.jsonl')) out.push(conversation(path.join(pd, e.name), opts))
   }

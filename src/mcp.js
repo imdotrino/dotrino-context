@@ -59,7 +59,7 @@ export async function serve ({ root, chain }) {
   // El primer índice se arranca enseguida, por detrás: la primera búsqueda lo espera.
   ctx.reindex().catch(e => process.stderr.write(`index: failed: ${e?.stack || e}\n`))
   // El socket del hook de cada mensaje: la misma búsqueda, con los modelos ya cargados.
-  await listen(ctx.root, req => ctx.search(String(req.query || ''), { k: req.k, minScore: req.minScore }), m => process.stderr.write(`${m}\n`))
+  await listen(ctx.root, req => ctx.search(String(req.query || ''), { k: req.k, minScore: req.minScore, maxGap: req.maxGap }), m => process.stderr.write(`${m}\n`))
   const transport = new StdioServerTransport()
   // Cuando Claude Code se cierra, se cierra su entrada: el servidor se va con él, y suelta la
   // GPU y el socket. Sin esto quedaba vivo por el socket.

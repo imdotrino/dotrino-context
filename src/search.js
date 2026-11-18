@@ -64,9 +64,9 @@ export const RERANK_POOL = 30
  * Busca en una cadena de bases: la propia (nivel 0) y las de los padres (subcontexto). Cada
  * base aporta sus mejores candidatos (vectores + palabra), se quitan los repetidos quedándose
  * con el de la base más cercana, y el reordenador los ordena todos juntos.
- * @param {{ stores: { store: import('./store.js').Store, level: number }[], embedder: import('./embed.js').Embedder, reranker?: import('./rerank.js').Reranker | null, query: string, k?: number, pathPrefix?: string, minScore?: number, log?: (m: string) => void }} opts
+ * @param {{ stores: { store: import('./store.js').Store, level: number }[], embedder: import('./embed.js').Embedder, reranker?: import('./rerank.js').Reranker | null, query: string, k?: number, pathPrefix?: string, minScore?: number, maxGap?: number, log?: (m: string) => void }} opts
  */
-export async function search ({ stores, embedder, reranker = null, query, k = 8, pathPrefix, minScore, log = () => {} }) {
+export async function search ({ stores, embedder, reranker = null, query, k = 8, pathPrefix, minScore, maxGap, log = () => {} }) {
   const live = stores.filter(({ store, level }) => {
     if (!store.vectors().ids.length) return false
     // Vectores de otro modelo no se comparan con los de este: esa base espera su reindexación.
@@ -106,5 +106,10 @@ export async function search ({ stores, embedder, reranker = null, query, k = 8,
   }
   rows.sort((a, b) => scoreOf(b) - scoreOf(a))
   if (reranker && minScore !== undefined) rows = rows.filter(r => scoreOf(r) >= minScore)
+  // Corte relativo: lo que queda muy por debajo del mejor apenas aporta y ensucia el contexto.
+  if (reranker && maxGap !== undefined && rows.length) {
+    const top = scoreOf(rows[0])
+    rows = rows.filter(r => scoreOf(r) >= top - maxGap)
+  }
   return rows.slice(0, k).map(r => ({ path: r.path, kind: r.kind, date: r.date, heading: r.heading, line: r.line, text: r.text, level: r.level, score: scoreOf(r) }))
 }

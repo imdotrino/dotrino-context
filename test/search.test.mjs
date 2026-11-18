@@ -122,3 +122,15 @@ test('own base first, parent bases as sub-context, duplicates kept from the near
   assert.equal(hits.find(h => h.path.endsWith('README.md'))?.level, 1)
   ctx.close()
 })
+
+test('relative cut: what falls far below the best is dropped', async () => {
+  const root = tmpFolder()
+  const reranker = { model: 'fake', async score (/** @type {string} */ _q, /** @type {string[]} */ texts) { return texts.map(t => t.includes('maestra') ? 6 : 1) } }
+  const ctx = openContext({ root, embedder: fakeEmbedder(), reranker, stores: [new Store(':memory:')], home: root, refreshMs: 0 })
+  await ctx.reindex()
+  const all = await ctx.search('maestra tema', { minScore: 0 })
+  const cut = await ctx.search('maestra tema', { minScore: 0, maxGap: 4 })
+  assert.ok(all.length > cut.length)
+  assert.ok(cut.every(h => h.text.includes('maestra')))
+  ctx.close()
+})
