@@ -6,7 +6,9 @@ import { openContext } from '../src/context.js'
 import { serve } from '../src/mcp.js'
 import { formatResults } from '../src/mcp.js'
 import { VERSION } from '../src/version.js'
+import { runHook } from '../src/hook.js'
 
+const kinds = (/** @type {Record<string, number>} */ k) => Object.entries(k).map(([a, b]) => `${a} ${b}`).join(', ')
 const es = /^es/i.test(process.env.LC_ALL || process.env.LC_MESSAGES || process.env.LANG || '')
 const t = es
   ? {
@@ -17,13 +19,14 @@ const t = es
   search <texto>     busca en la carpeta
   status             qué hay indexado
   serve              servidor MCP para Claude Code (stdio)
+  hook               hook UserPromptSubmit: añade el contexto relevante a cada mensaje
 
 Opciones:
   --root <carpeta>   la carpeta (por defecto, la actual)
   --k <n>            cuántos resultados (search, por defecto 8)
   --version`,
-      indexed: (/** @type {any} */ r, /** @type {any} */ s) => `${r.added} nuevos, ${r.updated} cambiados, ${r.removed} quitados · ${s.files} archivos, ${s.chunks} trozos`,
-      status: (/** @type {any} */ s) => `carpeta: ${s.root}\narchivos: ${s.files}\ntrozos: ${s.chunks}\nmodelo: ${s.model || '—'}\nindexado: ${s.indexedAt || 'nunca'}`,
+      indexed: (/** @type {any} */ r, /** @type {any} */ s) => `${r.added} nuevos, ${r.updated} cambiados, ${r.removed} quitados, ${r.skipped} saltados · ${s.chunks} trozos (${kinds(s.byKind)})`,
+      status: (/** @type {any} */ s) => `carpeta: ${s.root}\nfuentes: ${s.sources}\ntrozos: ${s.chunks} (${kinds(s.byKind)})\nmodelo: ${s.model || '—'}\nindexado: ${s.indexedAt || 'nunca'}${s.skipped.length ? `\nsaltados por tamaño (>512 KB):\n  ${s.skipped.join('\n  ')}` : ''}`,
       noQuery: 'Falta qué buscar: dotrino-context search <texto>'
     }
   : {
@@ -34,13 +37,14 @@ Commands:
   search <text>      search the folder
   status             what is indexed
   serve              MCP server for Claude Code (stdio)
+  hook               UserPromptSubmit hook: adds the relevant context to each message
 
 Options:
   --root <folder>    the folder (default: current)
   --k <n>            number of results (search, default 8)
   --version`,
-      indexed: (/** @type {any} */ r, /** @type {any} */ s) => `${r.added} new, ${r.updated} changed, ${r.removed} removed · ${s.files} files, ${s.chunks} chunks`,
-      status: (/** @type {any} */ s) => `folder: ${s.root}\nfiles: ${s.files}\nchunks: ${s.chunks}\nmodel: ${s.model || '—'}\nindexed: ${s.indexedAt || 'never'}`,
+      indexed: (/** @type {any} */ r, /** @type {any} */ s) => `${r.added} new, ${r.updated} changed, ${r.removed} removed, ${r.skipped} skipped · ${s.chunks} chunks (${kinds(s.byKind)})`,
+      status: (/** @type {any} */ s) => `folder: ${s.root}\nsources: ${s.sources}\nchunks: ${s.chunks} (${kinds(s.byKind)})\nmodel: ${s.model || '—'}\nindexed: ${s.indexedAt || 'never'}${s.skipped.length ? `\nskipped by size (>512 KB):\n  ${s.skipped.join('\n  ')}` : ''}`,
       noQuery: 'Missing what to search: dotrino-context search <text>'
     }
 
@@ -61,6 +65,8 @@ if (values.version) {
   console.log(VERSION)
 } else if (cmd === 'serve') {
   await serve({ root })
+} else if (cmd === 'hook') {
+  await runHook({ root })
 } else if (cmd === 'index') {
   const ctx = openContext({ root, log: m => process.stderr.write(`${m}\n`) })
   const r = await ctx.reindex()

@@ -1,31 +1,49 @@
 // La base de una carpeta: SQLite de Node (`node:sqlite`, sin dependencias). Los vectores van
-// como BLOB y se comparan en memoria: a esta escala (miles de trozos) recorrerlos todos tarda
-// milisegundos, y no hace falta ninguna extensión. FTS5 da la búsqueda por palabra.
+// como BLOB y se comparan en memoria: a esta escala (decenas de miles de trozos) recorrerlos
+// todos tarda milisegundos, y no hace falta ninguna extensión. FTS5 da la búsqueda por palabra.
+import fs from 'node:fs'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { ensureContextDir } from './paths.js'
 
-export const SCHEMA_VERSION = '1'
+export const SCHEMA_VERSION = '2'
 
 /**
- * @typedef {{ id: number, path: string, heading: string, line: number, text: string }} ChunkRow
+ * @typedef {{ id: number, path: string, kind: string, date: string, heading: string, line: number, text: string }} ChunkRow
  */
+
+const SCHEMA = `
+  create table if not exists meta (key text primary key, value text not null);
+  create table if not exists containers (key text primary key, kind text not null, stamp text not null);
+  create table if not exists docs (key text primary key, container text not null, version text not null);
+  create index if not exists docs_container on docs(container);
+  create table if not exists chunks (id integer primary key, doc text not null, path text not null, kind text not null, date text not null, heading text not null, line integer not null, text text not null, vec blob not null);
+  create index if not exists chunks_doc on chunks(doc);
+  create virtual table if not exists chunks_fts using fts5(heading, text, tokenize = 'unicode61 remove_diacritics 2');
+`
 
 export class Store {
   /**
    * @param {string} file  ruta de la base, o ':memory:'
    */
   constructor (file) {
-    this.db = new DatabaseSync(file)
-    this.db.exec(`
-      pragma journal_mode = wal;
-      pragma busy_timeout = 5000;
-      create table if not exists meta (key text primary key, value text not null);
-      create table if not exists files (path text primary key, mtime real not null, size integer not null, hash text not null);
-      create table if not exists chunks (id integer primary key, path text not null, heading text not null, line integer not null, text text not null, vec blob not null);
-      create index if not exists chunks_path on chunks(path);
-      create virtual table if not exists chunks_fts using fts5(heading, text, tokenize = 'unicode61 remove_diacritics 2');
-    `)
+    this.file = file
+    // Otro esquema es otra base: se tira el archivo entero ANTES de tocarlo y se empieza de
+    // cero. Así no conviven tablas de dos versiones, y el auto_vacuum (que solo se fija al
+    // crear) queda puesto.
+    let db = new DatabaseSync(file)
+    const hasMeta = db.prepare("select 1 from sqlite_master where type = 'table' and name = 'meta'").get()
+    const v = hasMeta ? /** @type {any} */ (db.prepare("select value from meta where key = 'schema'").get())?.value : null
+    const fresh = !hasMeta && !db.prepare("select 1 from sqlite_master where type = 'table'").get()
+    if (!fresh && v !== SCHEMA_VERSION) {
+      db.close()
+      if (file !== ':memory:') for (const f of [file, `${file}-wal`, `${file}-shm`]) fs.rmSync(f, { force: true })
+      db = new DatabaseSync(file)
+    }
+    db.exec('pragma auto_vacuum = incremental; pragma journal_mode = wal; pragma busy_timeout = 5000;')
+    db.exec(SCHEMA)
+    this.db = db
+    this.setMeta('schema', SCHEMA_VERSION)
     /** @type {{ ids: Int32Array, vecs: Float32Array, dims: number } | null} */
     this.cache = null
   }
@@ -47,76 +65,86 @@ export class Store {
   }
 
   /**
-   * Si cambió el modelo o el esquema, los vectores viejos no se pueden comparar con los
-   * nuevos: se borra todo y se vuelve a indexar. Nada de mezclar.
+   * Si cambió el modelo, los vectores viejos no se pueden comparar con los nuevos: se borra
+   * todo y se vuelve a indexar. Nada de mezclar.
    * @param {string} model
    */
   ensureModel (model) {
-    if (this.getMeta('model') === model && this.getMeta('schema') === SCHEMA_VERSION) return false
-    this.db.exec('delete from chunks; delete from chunks_fts; delete from files;')
+    if (this.getMeta('model') === model) return false
+    this.db.exec('delete from chunks; delete from chunks_fts; delete from docs; delete from containers;')
     this.setMeta('model', model)
-    this.setMeta('schema', SCHEMA_VERSION)
     this.cache = null
     return true
   }
 
-  /** @returns {Map<string, { mtime: number, size: number, hash: string }>} */
-  files () {
-    const rows = /** @type {any[]} */ (this.db.prepare('select path, mtime, size, hash from files').all())
-    return new Map(rows.map(r => [r.path, { mtime: r.mtime, size: r.size, hash: r.hash }]))
+  /** @returns {Map<string, { kind: string, stamp: string }>} */
+  containers () {
+    const rows = /** @type {any[]} */ (this.db.prepare('select key, kind, stamp from containers').all())
+    return new Map(rows.map(r => [r.key, { kind: r.kind, stamp: r.stamp }]))
   }
 
-  /** @param {string} p @param {number} mtime @param {number} size */
-  touchFile (p, mtime, size) {
-    this.db.prepare('update files set mtime = ?, size = ? where path = ?').run(mtime, size, p)
+  /** @param {string} key @param {string} kind @param {string} stamp */
+  setContainer (key, kind, stamp) {
+    this.db.prepare('insert into containers (key, kind, stamp) values (?, ?, ?) on conflict(key) do update set kind = excluded.kind, stamp = excluded.stamp').run(key, kind, stamp)
+  }
+
+  /** @param {string} container @returns {Map<string, string>} key → versión */
+  docsOf (container) {
+    const rows = /** @type {any[]} */ (this.db.prepare('select key, version from docs where container = ?').all(container))
+    return new Map(rows.map(r => [r.key, r.version]))
   }
 
   /**
-   * Reemplaza los trozos de un archivo, en una transacción.
-   * @param {string} p
-   * @param {{ mtime: number, size: number, hash: string }} stat
-   * @param {{ heading: string, line: number, text: string }[]} chunks
+   * Reemplaza los trozos de un documento, en una transacción.
+   * @param {string} container
+   * @param {string} kind
+   * @param {import('./sources.js').Doc} doc
    * @param {Float32Array[]} vecs
    */
-  replaceFile (p, stat, chunks, vecs) {
-    this.db.exec('begin')
-    try {
-      this.#deleteChunks(p)
-      const ins = this.db.prepare('insert into chunks (path, heading, line, text, vec) values (?, ?, ?, ?, ?)')
+  putDoc (container, kind, doc, vecs) {
+    this.#tx(() => {
+      this.#deleteChunks(doc.key)
+      const ins = this.db.prepare('insert into chunks (doc, path, kind, date, heading, line, text, vec) values (?, ?, ?, ?, ?, ?, ?, ?)')
       const fts = this.db.prepare('insert into chunks_fts (rowid, heading, text) values (?, ?, ?)')
-      chunks.forEach((c, i) => {
+      doc.chunks.forEach((c, i) => {
         const v = vecs[i]
-        const r = ins.run(p, c.heading, c.line, c.text, new Uint8Array(v.buffer, v.byteOffset, v.byteLength))
+        const r = ins.run(doc.key, doc.path, kind, doc.date, c.heading, c.line, c.text, new Uint8Array(v.buffer, v.byteOffset, v.byteLength))
         fts.run(r.lastInsertRowid, c.heading, c.text)
       })
-      this.db.prepare('insert into files (path, mtime, size, hash) values (?, ?, ?, ?) on conflict(path) do update set mtime = excluded.mtime, size = excluded.size, hash = excluded.hash')
-        .run(p, stat.mtime, stat.size, stat.hash)
-      this.db.exec('commit')
-    } catch (e) {
-      this.db.exec('rollback')
-      throw e
-    }
-    this.cache = null
+      this.db.prepare('insert into docs (key, container, version) values (?, ?, ?) on conflict(key) do update set container = excluded.container, version = excluded.version').run(doc.key, container, doc.version)
+    })
   }
 
-  /** @param {string} p */
-  removeFile (p) {
+  /** @param {string} key */
+  removeDoc (key) {
+    this.#tx(() => {
+      this.#deleteChunks(key)
+      this.db.prepare('delete from docs where key = ?').run(key)
+    })
+  }
+
+  /** @param {string} key */
+  removeContainer (key) {
+    for (const d of this.docsOf(key).keys()) this.removeDoc(d)
+    this.db.prepare('delete from containers where key = ?').run(key)
+  }
+
+  /** Devuelve al disco el espacio de lo borrado. */
+  compact () {
+    this.db.exec('pragma incremental_vacuum; pragma wal_checkpoint(truncate);')
+  }
+
+  /** @param {() => void} fn */
+  #tx (fn) {
     this.db.exec('begin')
-    try {
-      this.#deleteChunks(p)
-      this.db.prepare('delete from files where path = ?').run(p)
-      this.db.exec('commit')
-    } catch (e) {
-      this.db.exec('rollback')
-      throw e
-    }
+    try { fn(); this.db.exec('commit') } catch (e) { this.db.exec('rollback'); throw e }
     this.cache = null
   }
 
-  /** @param {string} p */
-  #deleteChunks (p) {
-    this.db.prepare('delete from chunks_fts where rowid in (select id from chunks where path = ?)').run(p)
-    this.db.prepare('delete from chunks where path = ?').run(p)
+  /** @param {string} doc */
+  #deleteChunks (doc) {
+    this.db.prepare('delete from chunks_fts where rowid in (select id from chunks where doc = ?)').run(doc)
+    this.db.prepare('delete from chunks where doc = ?').run(doc)
   }
 
   /** Todos los vectores en un solo bloque, cargados una vez hasta el próximo cambio. */
@@ -137,7 +165,7 @@ export class Store {
   /**
    * @param {string} match  consulta FTS5 ya saneada
    * @param {number} limit
-   * @returns {number[]}  ids, del más relevante al menos
+   * @returns {number[]}
    */
   lexical (match, limit) {
     if (!match) return []
@@ -148,14 +176,22 @@ export class Store {
   /** @param {number[]} ids @returns {ChunkRow[]} */
   chunksById (ids) {
     if (!ids.length) return []
-    const rows = /** @type {ChunkRow[]} */ (this.db.prepare(`select id, path, heading, line, text from chunks where id in (${ids.map(() => '?').join(',')})`).all(...ids))
+    const rows = /** @type {ChunkRow[]} */ (this.db.prepare(`select id, path, kind, date, heading, line, text from chunks where id in (${ids.map(() => '?').join(',')})`).all(...ids))
     const byId = new Map(rows.map(r => [r.id, r]))
     return /** @type {ChunkRow[]} */ (ids.map(id => byId.get(id)).filter(Boolean))
   }
 
   stats () {
     const one = (/** @type {string} */ sql) => /** @type {any} */ (this.db.prepare(sql).get()).n
-    return { files: one('select count(*) n from files'), chunks: one('select count(*) n from chunks'), model: this.getMeta('model'), indexedAt: this.getMeta('indexedAt') }
+    const byKind = /** @type {any[]} */ (this.db.prepare('select kind, count(*) n from chunks group by kind').all())
+    return {
+      sources: one('select count(*) n from containers'),
+      chunks: one('select count(*) n from chunks'),
+      byKind: Object.fromEntries(byKind.map(r => [r.kind, r.n])),
+      model: this.getMeta('model'),
+      indexedAt: this.getMeta('indexedAt'),
+      skipped: JSON.parse(this.getMeta('skipped') || '[]')
+    }
   }
 
   close () { this.db.close() }

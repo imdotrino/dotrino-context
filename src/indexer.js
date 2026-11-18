@@ -1,88 +1,51 @@
-// Recorre la carpeta (y la memoria de Claude de esa carpeta), y solo vuelve a calcular los
-// vectores de lo que cambió: primero mira fecha y tamaño, y si cambiaron, el hash.
+// Una pasada: recorre las fuentes, salta las que no cambiaron (por su sello) y, dentro de las
+// que sí, solo recalcula los documentos cuya versión cambió. Lo que ya no existe se borra.
 import fs from 'node:fs'
-import path from 'node:path'
-import crypto from 'node:crypto'
-import { chunkMarkdown } from './chunk.js'
-import { claudeMemoryDir, CONTEXT_DIRNAME } from './paths.js'
-
-/** Carpetas que nunca son documentación: dependencias, compilados, cachés. */
-export const SKIP_DIRS = new Set(['node_modules', 'dist', 'build', 'target', 'coverage', 'vendor', 'out', 'Pods', 'DerivedData', CONTEXT_DIRNAME])
-export const MAX_FILE_BYTES = 512 * 1024
+import { containers as listContainers, MAX_FILE_BYTES } from './sources.js'
 
 /**
- * Los .md bajo `dir`, sin carpetas ocultas ni las de SKIP_DIRS, y sin seguir enlaces.
- * @param {string} dir
- * @returns {string[]}
+ * @param {{ root: string, store: import('./store.js').Store, embedder: import('./embed.js').Embedder, home?: string, now?: () => number, log?: (msg: string) => void }} opts
  */
-export function walkMarkdown (dir) {
-  /** @type {string[]} */
-  const out = []
-  /** @param {string} d */
-  const visit = d => {
-    let entries
-    try { entries = fs.readdirSync(d, { withFileTypes: true }) } catch (e) {
-      if (/** @type {any} */ (e).code === 'ENOENT') return
-      throw e
-    }
-    for (const e of entries) {
-      if (e.name.startsWith('.')) continue
-      const p = path.join(d, e.name)
-      if (e.isDirectory()) { if (!SKIP_DIRS.has(e.name)) visit(p) } else if (e.isFile() && e.name.toLowerCase().endsWith('.md')) out.push(p)
-    }
-  }
-  visit(dir)
-  return out
-}
-
-/**
- * Las fuentes de una carpeta: sus .md y la memoria de Claude Code que le corresponde.
- * @param {string} root
- * @param {{ home?: string }} [opts]
- */
-export function sourceFiles (root, opts = {}) {
-  const files = walkMarkdown(path.resolve(root))
-  const mem = claudeMemoryDir(root, opts)
-  if (fs.existsSync(mem)) {
-    for (const e of fs.readdirSync(mem, { withFileTypes: true })) {
-      if (e.isFile() && e.name.endsWith('.md')) files.push(path.join(mem, e.name))
-    }
-  }
-  return files
-}
-
-/**
- * @param {{ root: string, store: import('./store.js').Store, embedder: import('./embed.js').Embedder, home?: string, log?: (msg: string) => void }} opts
- */
-export async function indexFolder ({ root, store, embedder, home, log = () => {} }) {
+export async function indexFolder ({ root, store, embedder, home, now, log = () => {} }) {
   if (store.ensureModel(embedder.model)) log(`index: fresh index for model ${embedder.model}`)
-  const known = store.files()
+  const known = store.containers()
   const seen = new Set()
-  let added = 0; let updated = 0; let removed = 0; let skipped = 0; let chunks = 0
+  /** @type {string[]} */
+  const skipped = []
+  const r = { added: 0, updated: 0, removed: 0, chunks: 0 }
 
-  for (const file of sourceFiles(root, { home })) {
-    let st
-    try { st = fs.statSync(file) } catch (e) {
+  for (const c of listContainers(root, { home, now })) {
+    let stamp
+    try {
+      if ((c.kind === 'doc' || c.kind === 'memory') && fs.statSync(c.key).size > MAX_FILE_BYTES) { skipped.push(c.key); continue }
+      stamp = c.stamp()
+    } catch (e) {
       if (/** @type {any} */ (e).code === 'ENOENT') continue
       throw e
     }
-    if (st.size > MAX_FILE_BYTES) { skipped++; continue }
-    seen.add(file)
-    const prev = known.get(file)
-    if (prev && prev.mtime === st.mtimeMs && prev.size === st.size) continue
-    const src = fs.readFileSync(file, 'utf8')
-    const hash = crypto.createHash('sha256').update(src).digest('hex')
-    if (prev && prev.hash === hash) { store.touchFile(file, st.mtimeMs, st.size); continue }
-    const parts = chunkMarkdown(src, { title: path.basename(file, '.md') })
-    const vecs = parts.length ? await embedder.embed(parts.map(c => `${c.heading}\n${c.text}`), 'passage') : []
-    store.replaceFile(file, { mtime: st.mtimeMs, size: st.size, hash }, parts, vecs)
-    chunks += parts.length
-    if (prev) updated++; else added++
-    if ((added + updated) % 25 === 0) log(`index: ${added + updated} files embedded`)
+    seen.add(c.key)
+    // Sin sello (una conversación en curso): se deja lo que ya había, sin tocarlo.
+    if (stamp === null || known.get(c.key)?.stamp === stamp) continue
+
+    const prev = store.docsOf(c.key)
+    const present = new Set()
+    for await (const doc of c.docs()) {
+      present.add(doc.key)
+      if (prev.get(doc.key) === doc.version) continue
+      const vecs = doc.chunks.length ? await embedder.embed(doc.chunks.map(ch => `${ch.heading}\n${ch.text}`), 'passage') : []
+      store.putDoc(c.key, c.kind, doc, vecs)
+      r.chunks += doc.chunks.length
+      if (prev.has(doc.key)) r.updated++; else r.added++
+      if ((r.added + r.updated) % 100 === 0) log(`index: ${r.added + r.updated} documents embedded`)
+    }
+    for (const k of prev.keys()) if (!present.has(k)) { store.removeDoc(k); r.removed++ }
+    store.setContainer(c.key, c.kind, stamp)
   }
-  for (const p of known.keys()) {
-    if (!seen.has(p)) { store.removeFile(p); removed++ }
+  for (const k of known.keys()) {
+    if (!seen.has(k)) { r.removed += store.docsOf(k).size; store.removeContainer(k) }
   }
+  if (r.removed) store.compact()
+  store.setMeta('skipped', JSON.stringify(skipped))
   store.setMeta('indexedAt', new Date().toISOString())
-  return { added, updated, removed, skipped, chunks }
+  return { ...r, skipped: skipped.length }
 }

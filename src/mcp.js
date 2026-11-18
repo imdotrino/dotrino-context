@@ -5,17 +5,25 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod'
 import { openContext } from './context.js'
 import { VERSION } from './version.js'
+import { listen } from './socket.js'
 
 /**
- * @param {{ path: string, line: number, heading: string, text: string }[]} results
+ * @param {{ path: string, kind: string, date: string, line: number, heading: string, text: string }[]} results
  */
 export function formatResults (results) {
   if (!results.length) return 'No results.'
-  return results.map((r, i) => {
-    const where = `${r.path}:${r.line}`
+  // Dos trozos de la misma sección (una sección larga partida en dos) se enseñan juntos.
+  /** @type {typeof results} */
+  const merged = []
+  for (const r of results) {
+    const same = merged.find(m => m.path === r.path && m.line === r.line && m.heading === r.heading)
+    if (same) same.text = `${same.text}\n\n${r.text}`
+    else merged.push({ ...r })
+  }
+  return merged.map((r, i) => {
+    const where = `[${r.kind} ${r.date}] ${r.line ? `${r.path}:${r.line}` : r.path}`
     const head = r.heading ? ` — ${r.heading}` : ''
-    const body = r.text.length > 700 ? `${r.text.slice(0, 700)}…` : r.text
-    return `[${i + 1}] ${where}${head}\n${body}`
+    return `[${i + 1}] ${where}${head}\n${r.text}`
   }).join('\n\n')
 }
 
@@ -26,7 +34,7 @@ export async function serve ({ root }) {
 
   server.registerTool('search', {
     title: 'Search folder context',
-    description: 'Semantic + keyword search over this folder\'s Markdown (docs, wiki, norms) and its Claude Code memory notes. Returns path:line, heading and the matching text. Use it before answering questions about past decisions, design docs or how something works in this folder; then Read the file at that line if you need more.',
+    description: 'Semantic + keyword search over this folder: its Markdown (docs, wiki, norms), its Claude Code memory notes, the git commit messages of its repos, and past Claude Code conversations in this folder. Each result says its kind (doc, memory, git, conv) and date. Results can disagree: a doc or memory note is the current state and wins over a commit or a conversation, which are history; the folder\'s CLAUDE.md and norm files win over everything; between two of the same kind, the newer one wins. Use it before opening files; Read the file at path:line before acting on a norm. For git results, `git -C <repo> show <sha>`.',
     inputSchema: {
       query: z.string().min(2).describe('What you are looking for, in natural language or exact terms'),
       k: z.number().int().min(1).max(30).optional().describe('How many results (default 8)'),
@@ -44,10 +52,17 @@ export async function serve ({ root }) {
   }, async () => {
     const r = await ctx.reindex()
     const s = ctx.stats()
-    return { content: [{ type: 'text', text: `added ${r.added}, updated ${r.updated}, removed ${r.removed}; ${s.files} files, ${s.chunks} chunks` }] }
+    return { content: [{ type: 'text', text: `added ${r.added}, updated ${r.updated}, removed ${r.removed}, skipped ${r.skipped}; ${s.sources} sources, ${s.chunks} chunks` }] }
   })
 
   // El primer índice se arranca enseguida, por detrás: la primera búsqueda lo espera.
   ctx.reindex().catch(e => process.stderr.write(`index: failed: ${e?.stack || e}\n`))
-  await server.connect(new StdioServerTransport())
+  // El socket del hook de cada mensaje: la misma búsqueda, con los modelos ya cargados.
+  await listen(ctx.root, req => ctx.search(String(req.query || ''), { k: req.k, minScore: req.minScore }), m => process.stderr.write(`${m}\n`))
+  const transport = new StdioServerTransport()
+  // Cuando Claude Code se cierra, se cierra su entrada: el servidor se va con él, y suelta la
+  // GPU y el socket. Sin esto quedaba vivo por el socket.
+  transport.onclose = () => process.exit(0)
+  process.stdin.once('end', () => process.exit(0))
+  await server.connect(transport)
 }

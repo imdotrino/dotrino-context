@@ -1,4 +1,6 @@
 import { test } from 'node:test'
+import { createRequire } from 'node:module'
+const require = createRequire(import.meta.url)
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -50,7 +52,7 @@ test('indexes, skips node_modules, finds by word and reindexes changes', async (
   fs.mkdirSync(mem, { recursive: true })
   fs.writeFileSync(path.join(mem, 'nota.md'), '---\ndescription: recordatorio del acta\n---\ntexto\n')
 
-  const ctx = openContext({ root, embedder: fakeEmbedder(), store: new Store(':memory:'), home, refreshMs: 0 })
+  const ctx = openContext({ root, embedder: fakeEmbedder(), reranker: null, store: new Store(':memory:'), home, refreshMs: 0 })
   const r1 = await ctx.reindex()
   assert.equal(r1.added, 3)
   const hits = await ctx.search('maestra acta')
@@ -65,6 +67,7 @@ test('indexes, skips node_modules, finds by word and reindexes changes', async (
   fs.rmSync(path.join(root, 'README.md'))
   const r3 = await ctx.reindex()
   assert.equal(r3.removed, 1)
+  assert.equal(ctx.stats().byKind.memory, 1)
   ctx.close()
 })
 
@@ -76,5 +79,29 @@ test('the context folder ignores itself in git', () => {
 })
 
 test('refuses to index the home folder', () => {
-  assert.throws(() => openContext({ root: os.homedir(), embedder: fakeEmbedder(), store: new Store(':memory:') }), { code: 'root-too-broad' })
+  assert.throws(() => openContext({ root: os.homedir(), embedder: fakeEmbedder(), reranker: null, store: new Store(':memory:') }), { code: 'root-too-broad' })
+})
+
+test('a base from another schema version is thrown away and rebuilt', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dctx-'))
+  const file = path.join(dir, 'index.db')
+  const { DatabaseSync } = require('node:sqlite')
+  const old = new DatabaseSync(file)
+  old.exec("create table meta (key text primary key, value text); insert into meta values ('schema', '1'); create table chunks (id integer primary key, path text);")
+  old.close()
+  const s = new Store(file)
+  assert.equal(s.getMeta('schema'), '2')
+  assert.equal(s.stats().chunks, 0)
+  s.close()
+})
+
+test('the reranker reorders and the threshold drops what does not answer', async () => {
+  const root = tmpFolder()
+  const reranker = { model: 'fake', async score (/** @type {string} */ _q, /** @type {string[]} */ texts) { return texts.map(t => t.includes('tokens dt') ? 5 : -10) } }
+  const ctx = openContext({ root, embedder: fakeEmbedder(), reranker, store: new Store(':memory:'), home: root, refreshMs: 0 })
+  await ctx.reindex()
+  const hits = await ctx.search('maestra acta tema', { minScore: 0 })
+  assert.equal(hits.length, 1)
+  assert.equal(path.basename(hits[0].path), 'README.md')
+  ctx.close()
 })

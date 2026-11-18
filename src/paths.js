@@ -39,3 +39,17 @@ export function claudeMemoryDir (root, { home = os.homedir() } = {}) {
 export function modelCacheDir ({ home = os.homedir(), env = process.env } = {}) {
   return env.DOTRINO_CONTEXT_MODELS || path.join(home, '.cache', 'dotrino', 'models')
 }
+
+/**
+ * Dónde corren los modelos. `cpu` por defecto; `cuda` lo pide quien tiene la GPU y las
+ * bibliotecas de CUDA 12 + cuDNN 9 en LD_LIBRARY_PATH. Si se pide `cuda` y no está, falla al
+ * cargar el modelo y lo dice: no se cae a CPU en silencio.
+ * @returns {{ device: 'cpu' | 'cuda', dtype: 'q8' | 'fp16' }}
+ */
+export function runtime ({ env = process.env } = {}) {
+  const device = env.DOTRINO_CONTEXT_DEVICE || 'cpu'
+  if (device !== 'cpu' && device !== 'cuda') throw Object.assign(new Error(`DOTRINO_CONTEXT_DEVICE must be cpu or cuda, got ${device}`), { code: 'bad-device' })
+  // En la GPU los modelos cuantizados a int8 son lentos (sus operaciones vuelven a la CPU):
+  // allí va fp16. En la CPU, q8.
+  return device === 'cuda' ? { device, dtype: 'fp16' } : { device, dtype: 'q8' }
+}

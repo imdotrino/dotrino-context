@@ -1,12 +1,12 @@
 // Los vectores se calculan en esta máquina, con transformers.js: nada de lo indexado sale a
 // ningún servicio. El modelo se baja una vez y se queda en la caché compartida.
-import { modelCacheDir } from './paths.js'
+import { modelCacheDir, runtime } from './paths.js'
 
-export const DEFAULT_MODEL = 'Xenova/multilingual-e5-small'
+export const DEFAULT_MODEL = 'Xenova/multilingual-e5-base'
 const BATCH = 16
 
 /**
- * @typedef {{ model: string, dims: number, embed: (texts: string[], kind: 'query' | 'passage') => Promise<Float32Array[]> }} Embedder
+ * @typedef {{ model: string, device: string, embed: (texts: string[], kind: 'query' | 'passage') => Promise<Float32Array[]> }} Embedder
  */
 
 /**
@@ -15,6 +15,7 @@ const BATCH = 16
  */
 export function createEmbedder ({ model, env = process.env } = {}) {
   const id = model || env.DOTRINO_CONTEXT_MODEL || DEFAULT_MODEL
+  const rt = runtime({ env })
   /** @type {Promise<any> | null} */
   let loading = null
   const load = () => {
@@ -22,14 +23,15 @@ export function createEmbedder ({ model, env = process.env } = {}) {
       loading = (async () => {
         const t = await import('@huggingface/transformers')
         t.env.cacheDir = modelCacheDir({ env })
-        return t.pipeline('feature-extraction', id, { dtype: 'q8' })
+        return t.pipeline('feature-extraction', id, { dtype: rt.dtype, device: rt.device })
       })()
     }
     return loading
   }
   return {
-    model: id,
-    dims: 384,
+    // La precisión cambia los vectores: q8 y fp16 no se mezclan en la misma base.
+    model: `${id}@${rt.dtype}`,
+    device: rt.device,
     async embed (texts, kind) {
       const extractor = await load()
       // Los modelos e5 se entrenaron con estos prefijos: sin ellos la búsqueda empeora.
