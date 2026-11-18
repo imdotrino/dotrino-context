@@ -4,7 +4,8 @@
   "description": "La memoria y los documentos de una carpeta, buscables por significado y por palabra, en tu máquina. Servidor MCP para Claude Code.",
   "main": "src/index.js",
   "scripts": {
-    "test": "node --test test/*.test.mjs"
+    "test": "node --test test/*.test.mjs",
+    "type-check": "tsc --noEmit"
   },
   "keywords": [
     "dotrino",
@@ -39,5 +40,9 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/imdotrino/dotrino-context.git"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.1",
+    "typescript": "5.9.3"
   }
 }
