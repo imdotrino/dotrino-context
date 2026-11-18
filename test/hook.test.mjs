@@ -49,3 +49,12 @@ test('the hook asks the server of the project folder, not of the cwd after a cd'
   assert.match(out.get(), /from project/)
   server?.close()
 })
+
+test('task notifications and hook feedback are not searched', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dctx-'))
+  const out = sink()
+  const prompt = '<task-notification>\n<task-id>x</task-id>\n<summary>Background command "publicar el paquete en npm" completed</summary>\n</task-notification>'
+  await runHook({ start: root, env: {}, stdin: Readable.from([JSON.stringify({ prompt, cwd: root })]), out: out.w })
+  await runHook({ start: root, env: {}, stdin: Readable.from([JSON.stringify({ prompt: 'Stop hook feedback:\n[bash x]: La tarjeta de esta consola quedó vieja', cwd: root })]), out: out.w })
+  assert.equal(out.get(), '')
+})

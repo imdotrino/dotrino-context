@@ -3,6 +3,7 @@
 // Lo que imprime por stdout entra en el contexto de ese turno.
 import { ask } from './socket.js'
 import { formatResults } from './mcp.js'
+import { cleanUserText } from './sources.js'
 
 /** Mensajes como «sí» o «commitea»: no hay nada que buscar. */
 export function worthSearching (/** @type {string} */ prompt) {
@@ -29,7 +30,8 @@ export async function runHook ({ start, stdin = process.stdin, out = process.std
   let raw = ''
   for await (const chunk of stdin) raw += chunk
   const input = raw ? JSON.parse(raw) : {}
-  const prompt = String(input.prompt || '')
+  // Lo que no escribió la persona (avisos de tareas, de hooks) no se busca.
+  const prompt = cleanUserText(String(input.prompt || ''))
   if (!worthSearching(prompt)) return
   let results
   try {

@@ -122,9 +122,15 @@ function gitRepo (repo) {
  */
 export function cleanUserText (s) {
   return s
-    .replace(/<(system-reminder|local-command-stdout|local-command-stderr|local-command-caveat|command-name|command-message|command-args)>[\s\S]*?<\/\1>/g, '')
+    .replace(/<(system-reminder|local-command-stdout|local-command-stderr|local-command-caveat|command-name|command-message|command-args|task-notification)>[\s\S]*?<\/\1>/g, '')
+    // Avisos que llegan como mensaje del usuario pero los escribe Claude Code: un hook de
+    // parada o el aviso de un proceso en segundo plano.
+    .replace(/^(Stop hook feedback:|\[SYSTEM NOTIFICATION)[\s\S]*$/m, '')
     .trim()
 }
+
+/** Sube cuando cambia cómo se lee una conversación (2: fuera los avisos de tareas y hooks). */
+export const CONV_READER = 2
 
 const USER_MAX = 2000
 const ASSISTANT_MAX = 4000
@@ -143,7 +149,9 @@ function conversation (file, { now = Date.now } = {}) {
     stamp () {
       const st = fs.statSync(file)
       if (now() - st.mtimeMs < QUIET_MS) return null
-      return `${st.mtimeMs}:${st.size}`
+      // La versión del lector va en el sello: si cambia cómo se limpia una conversación, se
+      // vuelven a leer todas, aunque el archivo no haya cambiado.
+      return `${st.mtimeMs}:${st.size}:${CONV_READER}`
     },
     async * docs () {
       const rl = readline.createInterface({ input: fs.createReadStream(file, 'utf8'), crlfDelay: Infinity })
