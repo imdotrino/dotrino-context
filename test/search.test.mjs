@@ -134,3 +134,20 @@ test('relative cut: what falls far below the best is dropped', async () => {
   assert.ok(cut.every(h => h.text.includes('maestra')))
   ctx.close()
 })
+
+test('one chunk per conversation: four turns of the same chat do not crowd out the rest', async () => {
+  const { search } = await import('../src/search.js')
+  const store = new Store(':memory:')
+  store.ensureModel('fake')
+  const emb = fakeEmbedder()
+  const put = async (/** @type {string} */ key, /** @type {string} */ p, /** @type {string} */ kind, /** @type {string} */ text) => {
+    const [v] = await emb.embed([text])
+    store.putDoc(p, kind, { key, path: p, version: key, date: 'd', chunks: [{ heading: 'h', line: 1, text }] }, [v])
+  }
+  for (let i = 0; i < 4; i++) await put(`c${i}`, '/s.jsonl', 'conv', `npm trust caducó otra vez ${i}`)
+  await put('m', '/memory/npm.md', 'memory', 'npm trust se aprueba con la passkey')
+  const reranker = { model: 'fake', async score (/** @type {string} */ _q, /** @type {string[]} */ t) { return t.map(() => 1) } }
+  const hits = await search({ stores: [{ store, level: 0 }], embedder: { ...emb, model: 'fake' }, reranker, query: 'npm trust', k: 6 })
+  assert.equal(hits.filter(h => h.kind === 'conv').length, 1)
+  assert.equal(hits[0].kind, 'memory')
+})

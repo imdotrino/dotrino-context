@@ -9,6 +9,8 @@ import { indexFolder } from './indexer.js'
 import { search } from './search.js'
 
 export const REFRESH_MS = 30_000
+/** Cuánto espera una búsqueda a que termine el refresco antes de buscar en lo que hay. */
+export const FRESH_WAIT_MS = 3_000
 
 /**
  * Abre la carpeta y su cadena de bases: la propia y las de los padres (ver `baseChain`).
@@ -50,10 +52,18 @@ export function openContext ({ root, chain, embedder = createEmbedder(), reranke
       // busca en lo que hay y la pasada sigue por detrás: una primera indexación larga (los
       // commits y las conversaciones) no puede dejar la búsqueda colgada minutos.
       const empty = dbs.every(d => d.stats().chunks === 0)
-      if (running) { if (empty) await running } else if (Date.now() - lastRun > refreshMs) {
-        const p = reindex()
-        if (empty) await p
-        else p.catch(e => log(`index: failed: ${e?.stack || e}`))
+      /** @type {Promise<unknown> | null} */
+      let pass = running
+      if (!pass && Date.now() - lastRun > refreshMs) pass = reindex()
+      if (pass) {
+        if (empty) await pass
+        else {
+          // Lo recién escrito tiene que poder salir: se espera a la pasada, con tope. Si nada
+          // cambió tarda milisegundos; si hay mucho que calcular, se busca en lo que hay y la
+          // pasada sigue por detrás.
+          pass.catch(e => log(`index: failed: ${e?.stack || e}`))
+          await Promise.race([pass.catch(() => {}), new Promise(resolve => setTimeout(resolve, FRESH_WAIT_MS))])
+        }
       }
       return search({ stores: dbs.map((store, level) => ({ store, level })), embedder, reranker, query, log, ...opts })
     },

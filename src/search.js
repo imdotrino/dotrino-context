@@ -39,7 +39,14 @@ export function nearest (q, all, limit) {
  * a lo que es historia (un commit, una conversación), a igual parecido. Es la misma regla de
  * precedencia que se le da a quien lee los resultados.
  */
-export const AUTHORITY = { doc: 1, memory: 1, git: 0, conv: 0 }
+export const AUTHORITY = { doc: 1, memory: 1.5, git: 0, conv: 0 }
+
+/**
+ * Cuántos trozos de una misma fuente pueden salir juntos. Cuatro turnos de la misma
+ * conversación cuentan lo mismo y tapan a la fuente vigente; dos secciones de un documento
+ * todavía pueden aportar cosas distintas. Un commit es ya una fuente por sí mismo.
+ */
+export const PER_SOURCE = { conv: 1, doc: 2, memory: 2, git: 1 }
 
 /**
  * Un commit que está en dos repos (uno es copia del otro) es el mismo commit: cuenta su hash,
@@ -105,6 +112,13 @@ export async function search ({ stores, embedder, reranker = null, query, k = 8,
     scoreOf = r => /** @type {number} */ (byRow.get(r))
   }
   rows.sort((a, b) => scoreOf(b) - scoreOf(a))
+  /** @type {Map<string, number>} */
+  const perSource = new Map()
+  rows = rows.filter(r => {
+    const n = (perSource.get(r.path) || 0) + 1
+    perSource.set(r.path, n)
+    return n <= (PER_SOURCE[/** @type {keyof typeof PER_SOURCE} */ (r.kind)] || 1)
+  })
   if (reranker && minScore !== undefined) rows = rows.filter(r => scoreOf(r) >= minScore)
   // Corte relativo: lo que queda muy por debajo del mejor apenas aporta y ensucia el contexto.
   if (reranker && maxGap !== undefined && rows.length) {
